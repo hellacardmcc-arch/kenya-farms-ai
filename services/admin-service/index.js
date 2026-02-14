@@ -7,7 +7,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { query } from './db.js';
+import { query, reconnect } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -894,6 +894,15 @@ app.get('/api/admin/health', async (_, res) => {
     res.json({ status: 'ok', db: 'connected' });
   } catch {
     res.status(503).json({ status: 'error', db: 'disconnected' });
+  }
+});
+
+app.post('/api/admin/settings/reconnect-db', async (req, res) => {
+  try {
+    await reconnect();
+    res.json({ ok: true, message: 'Database connection re-established successfully.', status: 'ok', db: 'connected' });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: 'Reconnect failed', message: err.message, status: 'error', db: 'disconnected' });
   }
 });
 

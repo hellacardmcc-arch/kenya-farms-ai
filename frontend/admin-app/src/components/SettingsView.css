@@ -219,6 +219,7 @@
 
 .maintenance-health {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
   margin-bottom: 24px;
@@ -226,6 +227,32 @@
   background: #f8fafc;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
+}
+
+.maintenance-health-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.btn-reconnect {
+  padding: 8px 16px;
+  background: #059669;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-reconnect:hover:not(:disabled) {
+  background: #047857;
+}
+
+.btn-reconnect:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .health-status {

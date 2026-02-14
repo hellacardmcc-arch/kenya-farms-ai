@@ -8,6 +8,7 @@ import {
   addSettingsLog,
   getAuditLogs,
   getAdminHealth,
+  requestReconnectDb,
   requestSystemRestart,
   requestRebuildService,
   requestRunMigrations,
@@ -54,6 +55,9 @@ const SettingsView: React.FC = () => {
 
   // Run migrations
   const [migrating, setMigrating] = useState(false);
+
+  // Force reconnect DB
+  const [reconnecting, setReconnecting] = useState(false);
 
   const loadConfig = () => {
     if (!token) return;
@@ -140,6 +144,26 @@ const SettingsView: React.FC = () => {
       setMessage({ type: 'error', text: msg });
     } finally {
       setAddingLog(false);
+    }
+  };
+
+  const handleForceReconnectDb = async () => {
+    if (!token) return;
+    setReconnecting(true);
+    setMessage(null);
+    try {
+      const result = await requestReconnectDb(token);
+      if (result.ok) {
+        setHealth({ status: 'ok', db: 'connected' });
+        setMessage({ type: 'success', text: result.message || 'Database reconnected successfully.' });
+      } else {
+        setMessage({ type: 'error', text: result.message || result.error || 'Reconnect failed' });
+      }
+    } catch (err: unknown) {
+      const res = (err as { response?: { data?: { message?: string; error?: string } } })?.response?.data;
+      setMessage({ type: 'error', text: res?.message || res?.error || 'Force reconnect failed' });
+    } finally {
+      setReconnecting(false);
     }
   };
 
@@ -444,9 +468,16 @@ const SettingsView: React.FC = () => {
               ) : (
                 <span>—</span>
               )}
-              <button className="btn-primary" onClick={() => runMaintenance('health')} disabled={maintenanceAction !== null}>
-                {maintenanceAction === 'health' ? 'Checking...' : 'Run Health Check'}
-              </button>
+              <div className="maintenance-health-actions">
+                <button className="btn-primary" onClick={() => runMaintenance('health')} disabled={maintenanceAction !== null}>
+                  {maintenanceAction === 'health' ? 'Checking...' : 'Run Health Check'}
+                </button>
+                {(health?.status !== 'ok' || !health) && (
+                  <button className="btn-reconnect" onClick={handleForceReconnectDb} disabled={reconnecting}>
+                    {reconnecting ? 'Reconnecting...' : 'Force Reconnect'}
+                  </button>
+                )}
+              </div>
             </div>
             <div className="maintenance-actions">
               <h3>Quick Actions</h3>

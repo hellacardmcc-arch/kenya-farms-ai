@@ -320,6 +320,11 @@ export async function getAdminHealth(token: string): Promise<{ status: string; d
   return res.data;
 }
 
+export async function requestReconnectDb(token: string): Promise<{ ok: boolean; message?: string; status?: string; db?: string }> {
+  const res = await axios.post<{ ok: boolean; message?: string; status?: string; db?: string }>(`${API_URL}/api/admin/settings/reconnect-db`, {}, headers(token));
+  return res.data;
+}
+
 export interface SystemHealthDetails {
   cpu: { percent: number; loadAvg: number[]; cores: number };
   ram: { percent: number; totalMb: number; usedMb: number; freeMb: number };
