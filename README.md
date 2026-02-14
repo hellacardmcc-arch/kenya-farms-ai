@@ -76,6 +76,17 @@ npm run dev:preview
 
 Opens at http://localhost:3010 – edit `frontend/preview-app/src/` and see changes instantly.
 
+### Deploy on Render.com
+
+1. Connect your repo at [Render Dashboard](https://dashboard.render.com/select-repo?type=blueprint)
+2. Select **Blueprint** and point to this repo
+3. After deploy, add env vars in Dashboard:
+   - **API Gateway**: `AUTH_SERVICE_URL`, `FARMER_SERVICE_URL`, `ADMIN_SERVICE_URL`, `SYSTEM_SERVICE_URL` (use each service's Render URL)
+   - **Farmer & Admin apps**: `REACT_APP_API_URL` = your API Gateway URL (e.g. `https://kenya-farms-api-xxx.onrender.com`)
+4. Run [database migrations](deploy/RENDER.md#step-5-run-database-migrations)
+
+Full guide: [deploy/RENDER.md](deploy/RENDER.md)
+
 ### Docker (production)
 
 ```bash

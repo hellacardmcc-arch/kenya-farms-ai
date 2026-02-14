@@ -1,0 +1,135 @@
+# Kenya Farms AI - Render.com Blueprint
+# Deploy: https://dashboard.render.com/select-repo?type=blueprint
+# Then connect your GitHub repo and add JWT_SECRET + API URLs (see deploy/RENDER.md)
+
+databases:
+  - name: kenya-farms-db
+    databaseName: kenya_farm_iot
+    user: kfiot
+    region: oregon
+    plan: free
+
+services:
+  # === Auth Service (deploy first - generates JWT_SECRET) ===
+  - type: web
+    name: kenya-farms-auth
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: services/auth-service
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 5002
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kenya-farms-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+
+  # === Farmer Service ===
+  - type: web
+    name: kenya-farms-farmer
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: services/farmer-service
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 4002
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kenya-farms-db
+          property: connectionString
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: kenya-farms-auth
+          envVarKey: JWT_SECRET
+
+  # === Admin Service ===
+  - type: web
+    name: kenya-farms-admin
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: services/admin-service
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 4006
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kenya-farms-db
+          property: connectionString
+
+  # === System Service ===
+  - type: web
+    name: kenya-farms-system
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: services/system-service
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 4007
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kenya-farms-db
+          property: connectionString
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: kenya-farms-auth
+          envVarKey: JWT_SECRET
+
+  # === API Gateway (add AUTH/FARMER/ADMIN/SYSTEM URLs in Dashboard after deploy) ===
+  - type: web
+    name: kenya-farms-api
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: services/api-gateway
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 5001
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: kenya-farms-auth
+          envVarKey: JWT_SECRET
+      # Add these in Render Dashboard after first deploy (use service URLs):
+      # AUTH_SERVICE_URL, FARMER_SERVICE_URL, ADMIN_SERVICE_URL, SYSTEM_SERVICE_URL
+
+  # === Farmer App (Static) - Add REACT_APP_API_URL in Dashboard after API deploys ===
+  - type: web
+    name: kenya-farms-farmer-app
+    runtime: static
+    region: oregon
+    rootDir: frontend/farmer-app
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./build
+    envVars:
+      - key: REACT_APP_API_URL
+        sync: false
+
+  # === Admin App (Static) - Add REACT_APP_API_URL in Dashboard after API deploys ===
+  - type: web
+    name: kenya-farms-admin-app
+    runtime: static
+    region: oregon
+    rootDir: frontend/admin-app
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./build
+    envVars:
+      - key: REACT_APP_API_URL
+        sync: false
