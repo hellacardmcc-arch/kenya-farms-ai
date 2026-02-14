@@ -339,6 +339,31 @@ export async function requestSystemRestart(token: string): Promise<{ ok: boolean
   return res.data;
 }
 
+export interface RebuildServiceResult {
+  ok: boolean;
+  message?: string;
+  command?: string;
+  output?: string;
+  error?: string;
+}
+
+export async function requestRebuildService(token: string, service: string): Promise<RebuildServiceResult> {
+  const res = await axios.post<RebuildServiceResult>(`${API_URL}/api/admin/settings/rebuild-service`, { service }, headers(token));
+  return res.data;
+}
+
+export interface RunMigrationsResult {
+  ok: boolean;
+  message?: string;
+  results?: { file: string; status: string; message?: string }[];
+  error?: string;
+}
+
+export async function requestRunMigrations(token: string): Promise<RunMigrationsResult> {
+  const res = await axios.post<RunMigrationsResult>(`${API_URL}/api/admin/settings/run-migrations`, {}, headers(token));
+  return res.data;
+}
+
 // Access requests (admin/farmer approval)
 export interface AccessRequest {
   id: string;

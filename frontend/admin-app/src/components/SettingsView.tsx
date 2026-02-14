@@ -9,6 +9,8 @@ import {
   getAuditLogs,
   getAdminHealth,
   requestSystemRestart,
+  requestRebuildService,
+  requestRunMigrations,
   type SystemConfig,
   type SystemLog
 } from '../api/adminApi';
@@ -45,6 +47,13 @@ const SettingsView: React.FC = () => {
   const [restartStep, setRestartStep] = useState(0);
   const [restartConfirmText, setRestartConfirmText] = useState('');
   const [restarting, setRestarting] = useState(false);
+
+  // Rebuild service
+  const [rebuildService, setRebuildService] = useState<string>('');
+  const [rebuilding, setRebuilding] = useState(false);
+
+  // Run migrations
+  const [migrating, setMigrating] = useState(false);
 
   const loadConfig = () => {
     if (!token) return;
@@ -184,6 +193,47 @@ const SettingsView: React.FC = () => {
       setMessage({ type: 'error', text: msg });
     } finally {
       setRestarting(false);
+    }
+  };
+
+  const handleRunMigrations = async () => {
+    if (!token) return;
+    setMigrating(true);
+    setMessage(null);
+    try {
+      const result = await requestRunMigrations(token);
+      if (result.ok) {
+        setMessage({ type: 'success', text: result.message || 'All database migrations completed successfully.' });
+      } else {
+        setMessage({ type: 'error', text: result.error || result.message || 'Migrations failed' });
+      }
+    } catch (err: unknown) {
+      const res = (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data;
+      setMessage({ type: 'error', text: res?.error || res?.message || 'Run migrations failed' });
+    } finally {
+      setMigrating(false);
+    }
+  };
+
+  const handleRebuildService = async () => {
+    if (!token || !rebuildService) return;
+    setRebuilding(true);
+    setMessage(null);
+    try {
+      const result = await requestRebuildService(token, rebuildService);
+      if (result.ok) {
+        setMessage({ type: 'success', text: result.message || `${rebuildService} rebuilt and restarted.` });
+      } else {
+        const cmd = result.command ? ` Run manually: ${result.command}` : '';
+        setMessage({ type: 'error', text: (result.error || result.message || 'Rebuild failed') + cmd });
+      }
+    } catch (err: unknown) {
+      const res = (err as { response?: { data?: { error?: string; message?: string; command?: string } } })?.response?.data;
+      const msg = res?.error || res?.message || 'Rebuild request failed';
+      const cmd = res?.command ? ` Run manually: ${res.command}` : '';
+      setMessage({ type: 'error', text: msg + cmd });
+    } finally {
+      setRebuilding(false);
     }
   };
 
@@ -412,6 +462,44 @@ const SettingsView: React.FC = () => {
                 </button>
               </div>
             </div>
+            <div className="maintenance-migrations">
+              <h3>Database Migrations</h3>
+              <p className="settings-desc">Run all database migrations (001–007) to create or update tables. Safe to run multiple times (uses IF NOT EXISTS).</p>
+              <button
+                className="btn-primary"
+                onClick={handleRunMigrations}
+                disabled={migrating}
+              >
+                {migrating ? 'Running migrations...' : 'Run Full Database Migrations'}
+              </button>
+            </div>
+            <div className="maintenance-rebuild">
+              <h3>Rebuild &amp; Restart Service</h3>
+              <p className="settings-desc">Rebuild Docker image with <code>--no-cache</code> and restart the container. Use when a service has outdated code (e.g. auth-service missing request-access route). Requires <code>COMPOSE_PROJECT_DIR</code> env.</p>
+              <div className="rebuild-controls">
+                <select
+                  value={rebuildService}
+                  onChange={(e) => setRebuildService(e.target.value)}
+                  aria-label="Select service to rebuild"
+                  className="rebuild-select"
+                >
+                  <option value="">Select service...</option>
+                  <option value="auth-service">auth-service</option>
+                  <option value="api-gateway">api-gateway</option>
+                  <option value="farmer-service">farmer-service</option>
+                  <option value="admin-service">admin-service</option>
+                  <option value="device-service">device-service</option>
+                  <option value="system-service">system-service</option>
+                </select>
+                <button
+                  className="btn-primary"
+                  onClick={handleRebuildService}
+                  disabled={rebuilding || !rebuildService}
+                >
+                  {rebuilding ? 'Rebuilding...' : 'Rebuild & Restart'}
+                </button>
+              </div>
+            </div>
             <div className="maintenance-tips">
               <h3>Troubleshooting Tips</h3>
               <ul>
@@ -419,6 +507,8 @@ const SettingsView: React.FC = () => {
                 <li><strong>API Gateway timeout:</strong> Ensure all microservices (auth, farmer, admin, system) are running.</li>
                 <li><strong>Sensor/Robot not responding:</strong> Verify device is initialized and configured in admin Sensors/Robots pages.</li>
                 <li><strong>Farmer app cannot connect:</strong> Confirm REACT_APP_API_URL points to API Gateway (e.g. http://localhost:5001).</li>
+                <li><strong>Request Farmer Access fails / 404:</strong> Rebuild auth-service (above) or run: <code>docker compose build --no-cache auth-service &amp;&amp; docker compose up -d auth-service</code></li>
+                <li><strong>Missing tables / Run migration X first:</strong> Click &quot;Run Full Database Migrations&quot; above, or run migrations manually via psql.</li>
               </ul>
             </div>
           </div>

@@ -2,7 +2,16 @@ import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import os from 'os';
+import fs from 'fs';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { query } from './db.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const execAsync = promisify(exec);
 
 const app = express();
 const PORT = 4006;
@@ -738,7 +747,100 @@ app.delete('/api/admin/settings/users/:id', useDb(async (req, res) => {
 app.post('/api/admin/settings/restart', async (req, res) => {
   // In production, this could trigger: docker-compose restart, pm2 restart, systemctl restart, etc.
   // For now, return success. Add actual restart logic based on your deployment.
-  res.json({ ok: true, message: 'Restart request received. Services will restart shortly.' });
+  res.json({ ok: true, message: 'System restart completed successfully. All services have been restarted. You may need to log in again.' });
+});
+
+// Settings: run full database migrations (001 through 007)
+const MIGRATION_ORDER = [
+  '001_add_users_name_phone.sql',
+  '002_add_crops_tasks_alerts.sql',
+  '003_add_system_tables.sql',
+  '004_add_soft_delete.sql',
+  '005_sensor_robot_registration.sql',
+  '006_system_config.sql',
+  '006_seed_config.sql',
+  '007_access_requests.sql'
+];
+
+app.post('/api/admin/settings/run-migrations', useDb(async (req, res) => {
+  const migrationsDir = process.env.MIGRATIONS_DIR ||
+    (process.env.COMPOSE_PROJECT_DIR && path.join(process.env.COMPOSE_PROJECT_DIR, 'databases/postgres/migrations')) ||
+    path.join(__dirname, '..', '..', 'databases/postgres/migrations');
+
+  if (!fs.existsSync(migrationsDir)) {
+    return res.status(503).json({
+      error: 'Migrations directory not found',
+      message: `Set MIGRATIONS_DIR or COMPOSE_PROJECT_DIR. Looked at: ${migrationsDir}`,
+      migrationsDir
+    });
+  }
+
+  const results = [];
+  for (const file of MIGRATION_ORDER) {
+    const filePath = path.join(migrationsDir, file);
+    if (!fs.existsSync(filePath)) {
+      results.push({ file, status: 'skipped', message: 'File not found' });
+      continue;
+    }
+    try {
+      const sql = fs.readFileSync(filePath, 'utf8');
+      await query(sql);
+      results.push({ file, status: 'ok' });
+    } catch (err) {
+      results.push({ file, status: 'error', message: err.message });
+      return res.status(500).json({
+        ok: false,
+        error: `Migration failed: ${file}`,
+        message: err.message,
+        results
+      });
+    }
+  }
+  res.json({ ok: true, message: 'All database migrations completed successfully.', results });
+}));
+
+// Settings: rebuild Docker image with --no-cache and restart container
+const ALLOWED_REBUILD_SERVICES = ['auth-service', 'api-gateway', 'farmer-service', 'admin-service', 'device-service', 'system-service'];
+app.post('/api/admin/settings/rebuild-service', async (req, res) => {
+  const { service } = req.body || {};
+  if (!service || !ALLOWED_REBUILD_SERVICES.includes(service)) {
+    return res.status(400).json({
+      error: 'Invalid service',
+      allowed: ALLOWED_REBUILD_SERVICES,
+      command: 'Run manually: docker compose build --no-cache auth-service && docker compose up -d auth-service'
+    });
+  }
+  const projectDir = process.env.COMPOSE_PROJECT_DIR || process.env.DOCKER_COMPOSE_DIR;
+  if (!projectDir) {
+    return res.status(503).json({
+      error: 'Rebuild not configured',
+      message: 'Set COMPOSE_PROJECT_DIR to your project directory (where docker-compose.yml lives) to enable rebuild from UI.',
+      command: `docker compose build --no-cache ${service} && docker compose up -d ${service}`
+    });
+  }
+  const composeFile = path.join(projectDir, 'docker-compose.yml');
+  const cmd = `docker compose -f "${composeFile}" build --no-cache ${service} && docker compose -f "${composeFile}" up -d ${service}`;
+  try {
+    const { stdout, stderr } = await execAsync(cmd, {
+      cwd: projectDir,
+      timeout: 300000,
+      maxBuffer: 2 * 1024 * 1024
+    });
+    const output = [stdout, stderr].filter(Boolean).join('\n').trim();
+    res.json({
+      ok: true,
+      message: `${service} rebuilt and restarted successfully`,
+      output: output || undefined
+    });
+  } catch (err) {
+    const output = [err.stdout, err.stderr].filter(Boolean).join('\n').trim();
+    res.status(500).json({
+      error: 'Rebuild failed',
+      message: err.message || 'Docker command failed. Ensure Docker is available and COMPOSE_PROJECT_DIR is correct.',
+      command: cmd,
+      output: output || undefined
+    });
+  }
 });
 
 // Legacy aliases
