@@ -13,7 +13,8 @@ import {
   requestRebuildService,
   requestRunMigrations,
   type SystemConfig,
-  type SystemLog
+  type SystemLog,
+  type RunMigrationsResult
 } from '../api/adminApi';
 import './AdminPage.css';
 import './SettingsView.css';
@@ -227,13 +228,16 @@ const SettingsView: React.FC = () => {
     try {
       const result = await requestRunMigrations(token);
       if (result.ok) {
-        setMessage({ type: 'success', text: result.message || 'All database migrations completed successfully.' });
+        setHealth({ status: 'ok', db: 'connected' });
+        setMessage({ type: 'success', text: result.message || 'All database migrations completed successfully. Connection refreshed.' });
       } else {
-        setMessage({ type: 'error', text: result.error || result.message || 'Migrations failed' });
+        const tip = result.reconnectTip ? ' Click Force Reconnect, then try again.' : '';
+        setMessage({ type: 'error', text: (result.error || result.message || 'Migrations failed') + tip });
       }
     } catch (err: unknown) {
-      const res = (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data;
-      setMessage({ type: 'error', text: res?.error || res?.message || 'Run migrations failed' });
+      const res = (err as { response?: { data?: RunMigrationsResult } })?.response?.data;
+      const tip = res?.reconnectTip ? ' Click Force Reconnect, then try again.' : '';
+      setMessage({ type: 'error', text: (res?.error || res?.message || 'Run migrations failed') + tip });
     } finally {
       setMigrating(false);
     }
@@ -540,6 +544,7 @@ const SettingsView: React.FC = () => {
                 <li><strong>Farmer app cannot connect:</strong> Confirm REACT_APP_API_URL points to API Gateway (e.g. http://localhost:5001).</li>
                 <li><strong>Request Farmer Access fails / 404:</strong> Rebuild auth-service (above) or run: <code>docker compose build --no-cache auth-service &amp;&amp; docker compose up -d auth-service</code></li>
                 <li><strong>Missing tables / Run migration X first:</strong> Click &quot;Run Full Database Migrations&quot; above, or run migrations manually via psql.</li>
+                <li><strong>Run migrations failed / DB disconnected after migration:</strong> Click &quot;Force Reconnect&quot; to refresh the connection, then run migrations again.</li>
               </ul>
             </div>
           </div>

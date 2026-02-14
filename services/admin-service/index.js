@@ -762,10 +762,14 @@ const MIGRATION_ORDER = [
   '007_access_requests.sql'
 ];
 
-app.post('/api/admin/settings/run-migrations', useDb(async (req, res) => {
-  const migrationsDir = process.env.MIGRATIONS_DIR ||
-    (process.env.COMPOSE_PROJECT_DIR && path.join(process.env.COMPOSE_PROJECT_DIR, 'databases/postgres/migrations')) ||
-    path.join(__dirname, '..', '..', 'databases/postgres/migrations');
+app.post('/api/admin/settings/run-migrations', async (req, res) => {
+  const candidates = [
+    process.env.MIGRATIONS_DIR,
+    process.env.COMPOSE_PROJECT_DIR && path.join(process.env.COMPOSE_PROJECT_DIR, 'databases/postgres/migrations'),
+    path.join(__dirname, 'migrations'),
+    path.join(__dirname, '..', '..', 'databases/postgres/migrations')
+  ].filter(Boolean);
+  const migrationsDir = candidates.find(d => d && fs.existsSync(d)) || candidates[0];
 
   if (!fs.existsSync(migrationsDir)) {
     return res.status(503).json({
@@ -776,28 +780,41 @@ app.post('/api/admin/settings/run-migrations', useDb(async (req, res) => {
   }
 
   const results = [];
-  for (const file of MIGRATION_ORDER) {
-    const filePath = path.join(migrationsDir, file);
-    if (!fs.existsSync(filePath)) {
-      results.push({ file, status: 'skipped', message: 'File not found' });
-      continue;
+  try {
+    for (const file of MIGRATION_ORDER) {
+      const filePath = path.join(migrationsDir, file);
+      if (!fs.existsSync(filePath)) {
+        results.push({ file, status: 'skipped', message: 'File not found' });
+        continue;
+      }
+      try {
+        const sql = fs.readFileSync(filePath, 'utf8');
+        await query(sql);
+        results.push({ file, status: 'ok' });
+      } catch (err) {
+        results.push({ file, status: 'error', message: err.message });
+        return res.status(500).json({
+          ok: false,
+          error: `Migration failed: ${file}`,
+          message: err.message,
+          results,
+          reconnectTip: 'Click Force Reconnect to refresh the database connection, then try again.'
+        });
+      }
     }
-    try {
-      const sql = fs.readFileSync(filePath, 'utf8');
-      await query(sql);
-      results.push({ file, status: 'ok' });
-    } catch (err) {
-      results.push({ file, status: 'error', message: err.message });
-      return res.status(500).json({
-        ok: false,
-        error: `Migration failed: ${file}`,
-        message: err.message,
-        results
-      });
-    }
+    await reconnect();
+    res.json({ ok: true, message: 'All database migrations completed successfully. Connection refreshed.', results });
+  } catch (err) {
+    try { await reconnect(); } catch (_) {}
+    res.status(500).json({
+      ok: false,
+      error: 'Migrations failed',
+      message: err.message,
+      results,
+      reconnectTip: 'Click Force Reconnect to refresh the database connection, then try again.'
+    });
   }
-  res.json({ ok: true, message: 'All database migrations completed successfully.', results });
-}));
+});
 
 // Settings: rebuild Docker image with --no-cache and restart container
 const ALLOWED_REBUILD_SERVICES = ['auth-service', 'api-gateway', 'farmer-service', 'admin-service', 'device-service', 'system-service'];

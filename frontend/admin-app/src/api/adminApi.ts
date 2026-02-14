@@ -362,6 +362,7 @@ export interface RunMigrationsResult {
   message?: string;
   results?: { file: string; status: string; message?: string }[];
   error?: string;
+  reconnectTip?: string;
 }
 
 export async function requestRunMigrations(token: string): Promise<RunMigrationsResult> {
