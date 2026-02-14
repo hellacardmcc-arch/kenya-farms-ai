@@ -160,6 +160,42 @@ Deploy in this order (later services depend on earlier ones):
 
 ---
 
+## How to Add API Gateway Environment Variables
+
+After deploying all backend services, add these environment variables to the **API Gateway** so it can route requests to each service:
+
+### Step-by-step
+
+1. Go to [Render Dashboard](https://dashboard.render.com)
+2. Click your **kenya-farms-api** (API Gateway) service
+3. In the left sidebar, click **Environment**
+4. Under **Environment Variables**, click **Add Environment Variable**
+5. Add each variable below (one at a time):
+
+| Key | Value |
+|-----|-------|
+| `AUTH_SERVICE_URL` | `https://kenya-farms-auth-xxxx.onrender.com` |
+| `FARMER_SERVICE_URL` | `https://kenya-farms-farmer-xxxx.onrender.com` |
+| `ADMIN_SERVICE_URL` | `https://kenya-farms-admin-xxxx.onrender.com` |
+| `SYSTEM_SERVICE_URL` | `https://kenya-farms-system-xxxx.onrender.com` |
+
+6. **Where to get the URLs**: Each service’s URL is on its Render page (e.g. `https://kenya-farms-auth.onrender.com`). Copy the full URL including `https://`.
+7. Click **Save Changes** when done
+8. Render will redeploy the API Gateway automatically
+
+### Example
+
+```
+AUTH_SERVICE_URL    = https://kenya-farms-auth.onrender.com
+FARMER_SERVICE_URL  = https://kenya-farms-farmer.onrender.com
+ADMIN_SERVICE_URL   = https://kenya-farms-admin.onrender.com
+SYSTEM_SERVICE_URL  = https://kenya-farms-system.onrender.com
+```
+
+> **Note**: Replace `xxxx` with your actual Render service IDs. The exact URL is shown on each service’s dashboard page.
+
+---
+
 ## Step 4: Deploy Frontends (Static Sites)
 
 ### 4.1 Farmer App
