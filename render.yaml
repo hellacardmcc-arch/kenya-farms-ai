@@ -114,7 +114,6 @@ services:
   - type: web
     name: kenya-farms-farmer-app
     runtime: static
-    region: oregon
     rootDir: frontend/farmer-app
     buildCommand: npm install && npm run build
     staticPublishPath: ./build
@@ -126,7 +125,6 @@ services:
   - type: web
     name: kenya-farms-admin-app
     runtime: static
-    region: oregon
     rootDir: frontend/admin-app
     buildCommand: npm install && npm run build
     staticPublishPath: ./build
