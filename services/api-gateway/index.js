@@ -30,6 +30,7 @@ app.get('/version', (_, res) => res.json({ version: '1.0.0', system: 'Kenya Farm
 // Stricter rate limit for auth endpoints
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/request-access', authLimiter);
 
 // JWT verification middleware (optional - services can also verify)
 const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-in-production';

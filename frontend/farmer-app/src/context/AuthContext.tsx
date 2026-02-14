@@ -78,7 +78,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await axios.post(`${API_URL}/api/auth/request-access`, {
         email, password, name, phone, role: 'farmer', farm_name: farmName, farm_size: farmSize
       });
-      if (!res.data?.ok) throw new Error(res.data?.message || 'Request failed');
+      if (!res.data?.ok) throw new Error(res.data?.message || res.data?.error || 'Request failed');
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.data) {
+        const d = err.response.data;
+        const msg = (typeof d === 'object' && (d.error || d.message)) || 'Request failed';
+        throw new Error(typeof msg === 'string' ? msg : 'Request failed');
+      }
+      throw err;
     } finally {
       setLoading(false);
     }

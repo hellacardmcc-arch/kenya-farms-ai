@@ -27,7 +27,18 @@ const Register: React.FC = () => {
       await requestAccess(email, password, name, farmName.trim(), phone || undefined, farmSize ? parseFloat(farmSize) : undefined);
       setSuccess(true);
     } catch (err: unknown) {
-      const msg = axios.isAxiosError(err) && err.response?.data?.error ? err.response.data.error : 'Request failed. Please try again.';
+      let msg = 'Request failed. Please try again.';
+      if (err instanceof Error && err.message && err.message !== 'Request failed') {
+        msg = err.message;
+      } else if (axios.isAxiosError(err)) {
+        const d = err.response?.data;
+        const backendMsg = d && typeof d === 'object' ? ((d as { error?: string; message?: string }).error || (d as { error?: string; message?: string }).message) : null;
+        if (backendMsg) msg = backendMsg;
+        else if (err.code === 'ERR_NETWORK') msg = 'Cannot reach server. Start API Gateway (5001) and Auth service (5002), or check REACT_APP_API_URL.';
+        else if (err.response?.status === 502 || err.response?.status === 503) msg = 'Backend unavailable. Ensure Auth service and PostgreSQL are running.';
+        else if (err.response?.status === 400) msg = backendMsg || 'Invalid request. Check your input.';
+        else if (err.response?.status === 409) msg = backendMsg || 'Email already registered or pending.';
+      }
       setError(msg);
     }
   };
