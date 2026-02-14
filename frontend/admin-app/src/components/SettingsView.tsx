@@ -12,6 +12,7 @@ import {
   requestSystemRestart,
   requestRebuildService,
   requestRunMigrations,
+  getMigrationStatus,
   type SystemConfig,
   type SystemLog,
   type RunMigrationsResult
@@ -59,6 +60,10 @@ const SettingsView: React.FC = () => {
 
   // Force reconnect DB
   const [reconnecting, setReconnecting] = useState(false);
+
+  // Migration status
+  const [migrationStatus, setMigrationStatus] = useState<{ id: string; name: string; applied: boolean }[] | null>(null);
+  const [migrationStatusLoading, setMigrationStatusLoading] = useState(false);
 
   const loadConfig = () => {
     if (!token) return;
@@ -218,6 +223,26 @@ const SettingsView: React.FC = () => {
       setMessage({ type: 'error', text: msg });
     } finally {
       setRestarting(false);
+    }
+  };
+
+  const handleCheckMigrationStatus = async () => {
+    if (!token) return;
+    setMigrationStatusLoading(true);
+    setMessage(null);
+    try {
+      const result = await getMigrationStatus(token);
+      if (result.ok && result.migrations) {
+        setMigrationStatus(result.migrations);
+        setMessage({ type: 'success', text: `Found ${result.migrations.filter(m => m.applied).length}/${result.migrations.length} migrations applied.` });
+      } else {
+        setMessage({ type: 'error', text: result.error || 'Failed to check migration status' });
+      }
+    } catch (err: unknown) {
+      const res = (err as { response?: { data?: { error?: string } } })?.response?.data;
+      setMessage({ type: 'error', text: res?.error || 'Failed to check migration status' });
+    } finally {
+      setMigrationStatusLoading(false);
     }
   };
 
@@ -499,14 +524,35 @@ const SettingsView: React.FC = () => {
             </div>
             <div className="maintenance-migrations">
               <h3>Database Migrations</h3>
-              <p className="settings-desc">Run all database migrations (001–007) to create or update tables. Safe to run multiple times (uses IF NOT EXISTS).</p>
-              <button
-                className="btn-primary"
-                onClick={handleRunMigrations}
-                disabled={migrating}
-              >
-                {migrating ? 'Running migrations...' : 'Run Full Database Migrations'}
-              </button>
+              <p className="settings-desc">Check which migrations are applied, or run all migrations (001–007). Safe to run multiple times (uses IF NOT EXISTS).</p>
+              <div className="migration-actions">
+                <button
+                  className="btn-secondary"
+                  onClick={handleCheckMigrationStatus}
+                  disabled={migrationStatusLoading}
+                >
+                  {migrationStatusLoading ? 'Checking...' : 'Check Migration Status'}
+                </button>
+                <button
+                  className="btn-primary"
+                  onClick={handleRunMigrations}
+                  disabled={migrating}
+                >
+                  {migrating ? 'Running migrations...' : 'Run Full Database Migrations'}
+                </button>
+              </div>
+              {migrationStatus && (
+                <div className="migration-status-list">
+                  <h4>Migration status</h4>
+                  {migrationStatus.map((m) => (
+                    <div key={m.id} className={`migration-status-item ${m.applied ? 'applied' : 'pending'}`}>
+                      <span>{m.applied ? '✓' : '○'}</span>
+                      <span>{m.name}</span>
+                      <span>{m.applied ? 'Applied' : 'Pending'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="maintenance-rebuild">
               <h3>Rebuild &amp; Restart Service</h3>

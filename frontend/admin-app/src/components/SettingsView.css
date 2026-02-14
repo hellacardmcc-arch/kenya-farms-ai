@@ -299,6 +299,40 @@
   font-size: 13px;
 }
 
+.migration-actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.migration-status-list {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 6px;
+}
+
+.migration-status-list h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.migration-status-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.migration-status-item.applied {
+  color: #059669;
+}
+
+.migration-status-item.pending {
+  color: #dc2626;
+}
+
 .maintenance-rebuild {
   margin-bottom: 24px;
   padding: 16px;

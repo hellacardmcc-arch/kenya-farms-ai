@@ -914,6 +914,33 @@ app.get('/api/admin/health', async (_, res) => {
   }
 });
 
+app.get('/api/admin/settings/migration-status', async (req, res) => {
+  const checks = [
+    { id: 'init', name: 'Base schema (init.sql)', test: "SELECT 1 FROM users LIMIT 1" },
+    { id: '001', name: '001_add_users_name_phone', test: "SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='name' LIMIT 1" },
+    { id: '002', name: '002_add_crops_tasks_alerts', test: "SELECT 1 FROM crops LIMIT 1" },
+    { id: '003', name: '003_add_system_tables', test: "SELECT 1 FROM system_config LIMIT 1" },
+    { id: '004', name: '004_add_soft_delete', test: "SELECT 1 FROM information_schema.columns WHERE table_name='farmers' AND column_name='deleted_at' LIMIT 1" },
+    { id: '005', name: '005_sensor_robot_registration', test: "SELECT 1 FROM information_schema.columns WHERE table_name='system_sensors' AND column_name='registration_status' LIMIT 1" },
+    { id: '006', name: '006_system_config', test: "SELECT 1 FROM system_logs LIMIT 1" },
+    { id: '007', name: '007_access_requests', test: "SELECT 1 FROM access_requests LIMIT 1" }
+  ];
+  const results = [];
+  try {
+    for (const c of checks) {
+      try {
+        await query(c.test);
+        results.push({ id: c.id, name: c.name, applied: true });
+      } catch {
+        results.push({ id: c.id, name: c.name, applied: false });
+      }
+    }
+    res.json({ ok: true, migrations: results });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message, migrations: [] });
+  }
+});
+
 app.post('/api/admin/settings/reconnect-db', async (req, res) => {
   try {
     await reconnect();

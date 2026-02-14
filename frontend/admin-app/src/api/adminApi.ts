@@ -370,6 +370,17 @@ export async function requestRunMigrations(token: string): Promise<RunMigrations
   return res.data;
 }
 
+export interface MigrationStatusResult {
+  ok: boolean;
+  migrations?: { id: string; name: string; applied: boolean }[];
+  error?: string;
+}
+
+export async function getMigrationStatus(token: string): Promise<MigrationStatusResult> {
+  const res = await axios.get<MigrationStatusResult>(`${API_URL}/api/admin/settings/migration-status`, headers(token));
+  return res.data;
+}
+
 // Access requests (admin/farmer approval)
 export interface AccessRequest {
   id: string;
