@@ -1,0 +1,493 @@
+/* ==================== KENYA FARM IOT - EXACT PREVIEW STYLES ==================== */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --kenya-green: #006600;
+  --kenya-red: #BB0000;
+  --kenya-black: #000000;
+  --soil-low: #dc2626;
+  --soil-medium: #f59e0b;
+  --soil-good: #10b981;
+  --card-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  --mobile-max: 480px;
+}
+
+/* Base styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Farmer Dashboard - Exact Mobile Preview */
+.farmer-dashboard {
+  max-width: var(--mobile-max);
+  margin: 0 auto;
+  background: white;
+  min-height: 100vh;
+  box-shadow: var(--card-shadow);
+  position: relative;
+}
+
+/* Farm App Header - Green */
+.kenya-flag-header {
+  background: var(--kenya-green);
+  color: white;
+  padding: 16px 20px;
+  position: relative;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.kenya-flag-header > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.kenya-flag-header h1 {
+  font-size: clamp(1rem, 4vw, 1.25rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kenya-flag-header .header-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.kenya-flag-header .header-btn {
+  background: rgba(255,255,255,0.2);
+  border: none;
+  color: white;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* Weather Widget - EXACT match */
+.weather-widget {
+  background: #f8fafc;
+  border-radius: 16px;
+  padding: 16px;
+  margin: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+}
+
+.weather-icon {
+  font-size: 32px;
+  color: #f59e0b;
+}
+
+.weather-temp {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.weather-location {
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* Soil Moisture Card - EXACT match */
+.moisture-card {
+  background: white;
+  border-radius: 20px;
+  padding: 20px;
+  margin: 16px;
+  box-shadow: var(--card-shadow);
+  border: 1px solid #f1f5f9;
+}
+
+.moisture-value {
+  font-size: 48px;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.moisture-indicator {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.moisture-low { background: var(--soil-low); }
+.moisture-medium { background: var(--soil-medium); }
+.moisture-good { background: var(--soil-good); }
+
+.moisture-bar {
+  width: 100%;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  margin: 12px 0;
+  overflow: hidden;
+}
+
+.moisture-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.moisture-fill.low { background: var(--soil-low); }
+.moisture-fill.medium { background: var(--soil-medium); }
+.moisture-fill.good { background: var(--soil-good); }
+
+/* Task Cards - EXACT match */
+.task-card {
+  border-left: 4px solid #3b82f6;
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 16px;
+  margin: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.3s ease;
+}
+
+.task-card:hover {
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.task-crop {
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 4px;
+}
+
+.task-details {
+  color: #64748b;
+  font-size: 14px;
+}
+
+.task-amount {
+  background: #dbeafe;
+  color: #1e40af;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.complete-button {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.complete-button:hover {
+  background: #059669;
+  transform: scale(1.02);
+}
+
+/* Crop Cards - EXACT match */
+.crop-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 16px;
+  margin: 12px 16px;
+}
+
+.crop-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.crop-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.crop-badge {
+  background: #dcfce7;
+  color: #166534;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.crop-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  color: #64748b;
+  font-size: 14px;
+  margin: 12px 0;
+}
+
+.crop-progress {
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 2px;
+  margin: 8px 0;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #3b82f6;
+  border-radius: 2px;
+}
+
+/* Chart Container */
+.chart-container {
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  margin: 16px;
+  box-shadow: var(--card-shadow);
+  height: 200px;
+}
+
+/* Alert Cards */
+.alert-card {
+  border-radius: 12px;
+  padding: 16px;
+  margin: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.alert-high {
+  background: #fee2e2;
+  border-left: 4px solid #dc2626;
+}
+
+.alert-medium {
+  background: #fef3c7;
+  border-left: 4px solid #f59e0b;
+}
+
+.alert-low {
+  background: #dbeafe;
+  border-left: 4px solid #3b82f6;
+}
+
+.alert-icon {
+  font-size: 24px;
+}
+
+.alert-message {
+  flex: 1;
+  color: #1e293b;
+  font-size: 14px;
+}
+
+/* Bottom Navigation - EXACT match */
+.bottom-nav {
+  position: sticky;
+  bottom: 0;
+  background: white;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-around;
+  padding: 8px 12px;
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.05);
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #94a3b8;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.nav-item.active {
+  color: var(--kenya-green);
+  background: #f0fdf4;
+}
+
+.nav-item i {
+  font-size: 20px;
+  margin-bottom: 4px;
+}
+
+/* Quick Action Buttons */
+.quick-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 16px;
+}
+
+.quick-action-btn {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #1e293b;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.quick-action-btn:hover {
+  background: white;
+  box-shadow: var(--card-shadow);
+  transform: translateY(-2px);
+}
+
+.quick-action-btn i {
+  font-size: 24px;
+  color: var(--kenya-green);
+}
+
+/* Admin Dashboard Styles */
+.admin-dashboard {
+  background: #f1f5f9;
+  min-height: 100vh;
+}
+
+.admin-header {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  color: white;
+  padding: 20px;
+}
+
+.admin-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin: 20px;
+}
+
+.stat-card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: var(--card-shadow);
+  transition: all 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+
+.stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 8px 0;
+}
+
+.stat-label {
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* Database Status Banner */
+.db-status-banner {
+  padding: 12px 20px;
+  margin: 0 20px 20px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.db-status-live {
+  background: #10b981;
+  color: white;
+}
+
+.db-status-demo {
+  background: #f59e0b;
+  color: white;
+}
+
+.db-status-offline {
+  background: #ef4444;
+  color: white;
+}
+
+/* Responsive Design */
+@media (max-width: 480px) {
+  .farmer-dashboard {
+    max-width: 100%;
+    box-shadow: none;
+  }
+  
+  .admin-stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 12px;
+  }
+  
+  .stat-card {
+    padding: 16px;
+  }
+  
+  .stat-value {
+    font-size: 24px;
+  }
+}
+
+/* Animations */
+@keyframes slideIn {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.task-card, .crop-card, .alert-card {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Loading States */
+.skeleton {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

@@ -1,0 +1,98 @@
+/* ==================== KENYA FARM IOT - ADMIN EXACT STYLES ==================== */
+
+:root {
+  --card-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Admin Dashboard Styles */
+.admin-dashboard {
+  background: #f1f5f9;
+  min-height: 100vh;
+}
+
+.admin-header {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  color: white;
+  padding: 20px;
+}
+
+.admin-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin: 20px;
+}
+
+.stat-card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: var(--card-shadow);
+  transition: all 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+
+.stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 8px 0;
+}
+
+.stat-label {
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* Database Status Banner */
+.db-status-banner {
+  padding: 12px 20px;
+  margin: 0 20px 20px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.db-status-live {
+  background: #10b981;
+  color: white;
+}
+
+.db-status-demo {
+  background: #f59e0b;
+  color: white;
+}
+
+.db-status-offline {
+  background: #ef4444;
+  color: white;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .admin-stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 12px;
+  }
+  
+  .stat-card {
+    padding: 16px;
+  }
+  
+  .stat-value {
+    font-size: 24px;
+  }
+}

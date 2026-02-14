@@ -1,0 +1,14 @@
+/* Admin Dashboard - uses styles from styles.css */
+
+.admin-main-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+  margin: 20px;
+}
+
+@media (max-width: 900px) {
+  .admin-main-grid {
+    grid-template-columns: 1fr;
+  }
+}

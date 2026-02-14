@@ -1,0 +1,64 @@
+/* STYLING - Farmer preview */
+.farmer-preview {
+  background: #161b22;
+  border: 1px solid #30363d;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.device-card {
+  background: #21262d;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.device-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #3fb950;
+  margin: 0.5rem 0;
+}
+
+.status-badge {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+
+.status-badge.normal {
+  background: rgba(63, 185, 80, 0.2);
+  color: #3fb950;
+}
+
+.status-badge.idle {
+  background: rgba(139, 148, 158, 0.2);
+  color: #8b949e;
+}
+
+.status-badge.active {
+  background: rgba(63, 185, 80, 0.2);
+  color: #3fb950;
+}
+
+.toggle-btn {
+  padding: 0.4rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toggle-btn.on {
+  background: #3fb950;
+  color: #0d1117;
+}
+
+.toggle-btn.off {
+  background: #21262d;
+  color: #8b949e;
+}

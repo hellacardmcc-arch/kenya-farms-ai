@@ -1,0 +1,32 @@
+/* STYLING - Admin preview */
+.admin-preview {
+  background: #161b22;
+  border: 1px solid #30363d;
+}
+
+.farms-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.farm-card {
+  background: #21262d;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.device-count {
+  color: #8b949e;
+  margin: 0.5rem 0;
+}
+
+.status-badge.active {
+  background: rgba(63, 185, 80, 0.2);
+  color: #3fb950;
+}
+
+.status-badge.maintenance {
+  background: rgba(210, 153, 34, 0.2);
+  color: #d29922;
+}

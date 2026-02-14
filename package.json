@@ -1,0 +1,28 @@
+{
+  "name": "kenya-farms-ai",
+  "version": "2.0.0",
+  "description": "🇰🇪 Kenya Farms AI - Farmers Management System IoT and AI",
+  "private": true,
+  "scripts": {
+    "dev:gateway": "cd services/api-gateway && npm run dev",
+    "dev:auth": "cd services/auth-service && npm run dev",
+    "dev:farmer": "cd services/farmer-service && npm run dev",
+    "dev:device": "cd services/device-service && npm run dev",
+    "dev:analytics": "cd services/analytics-service && npm run dev",
+    "dev:notification": "cd services/notification-service && npm run dev",
+    "dev:admin": "cd services/admin-service && npm run dev",
+    "dev:services": "concurrently \"npm run dev:gateway\" \"npm run dev:auth\" \"npm run dev:farmer\" \"npm run dev:device\" \"npm run dev:analytics\" \"npm run dev:notification\" \"npm run dev:admin\"",
+    "dev:farmer-app": "cd frontend/farmer-app && npm start",
+    "dev:admin-app": "cd frontend/admin-app && npm start",
+    "dev:public-app": "cd frontend/public-app && npm start",
+    "dev:preview": "cd frontend/preview-app && npm run dev",
+    "install:all": "npm install && npm run install:services && npm run install:frontends",
+    "install:services": "cd services/api-gateway && npm install && cd ../auth-service && npm install && cd ../farmer-service && npm install && cd ../device-service && npm install && cd ../analytics-service && npm install && cd ../notification-service && npm install && cd ../admin-service && npm install",
+    "install:frontends": "cd frontend/farmer-app && npm install && cd ../admin-app && npm install && cd ../public-app && npm install && cd ../preview-app && npm install",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
