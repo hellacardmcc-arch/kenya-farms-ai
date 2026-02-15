@@ -1,7 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import './App.css';
+import ApiDocsModal from './ApiDocsModal';
 
 function App() {
+  const [showApiDocs, setShowApiDocs] = useState(false);
+
   return (
     <div className="public-app">
       <header className="hero">
@@ -13,8 +16,11 @@ function App() {
           <span>3 Frontends</span>
           <span>50+ APIs</span>
         </div>
-        <a href="/api/docs" className="cta">View API Docs</a>
+        <button type="button" className="cta" onClick={() => setShowApiDocs(true)}>
+          View API Docs
+        </button>
       </header>
+      {showApiDocs && <ApiDocsModal onClose={() => setShowApiDocs(false)} />}
     </div>
   );
 }
