@@ -357,8 +357,31 @@ export interface RebuildServiceResult {
   error?: string;
 }
 
+export interface RebuildConfigResult {
+  projectDir: string;
+  configured: boolean;
+  hint?: string;
+}
+
+export async function getRebuildConfig(token: string): Promise<RebuildConfigResult> {
+  const res = await axios.get<RebuildConfigResult>(`${API_URL}/api/admin/settings/rebuild-config`, headers(token));
+  return res.data;
+}
+
 export async function requestRebuildService(token: string, service: string): Promise<RebuildServiceResult> {
   const res = await axios.post<RebuildServiceResult>(`${API_URL}/api/admin/settings/rebuild-service`, { service }, headers(token));
+  return res.data;
+}
+
+export interface MigrationReadyResult {
+  ready: boolean;
+  dbOk: boolean;
+  migrationsDirOk: boolean;
+  error?: string;
+}
+
+export async function checkMigrationReady(token: string): Promise<MigrationReadyResult> {
+  const res = await axios.get<MigrationReadyResult>(`${API_URL}/api/admin/settings/migration-ready`, headers(token));
   return res.data;
 }
 

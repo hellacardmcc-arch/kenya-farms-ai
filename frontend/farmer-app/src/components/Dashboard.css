@@ -1,1 +1,42 @@
 /* Dashboard component - uses styles from styles.css */
+
+.sensor-indicators-card {
+  background: white;
+  border-radius: 20px;
+  padding: 20px;
+  margin: 16px;
+  box-shadow: var(--card-shadow);
+  border: 1px solid #f1f5f9;
+}
+
+.sensor-indicators-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sensor-indicator-bar {
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.sensor-indicator-bar:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.sensor-indicator-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1e293b;
+}
+
+.sensor-indicator-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+}

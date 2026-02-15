@@ -775,7 +775,7 @@ app.post('/api/admin/settings/restart', async (req, res) => {
   res.json({ ok: true, message: 'System restart completed successfully. All services have been restarted. You may need to log in again.' });
 });
 
-// Settings: run full database migrations (001 through 007)
+// Settings: run full database migrations (001 through 008)
 const MIGRATION_ORDER = [
   '001_add_users_name_phone.sql',
   '002_add_crops_tasks_alerts.sql',
@@ -784,7 +784,8 @@ const MIGRATION_ORDER = [
   '005_sensor_robot_registration.sql',
   '006_system_config.sql',
   '006_seed_config.sql',
-  '007_access_requests.sql'
+  '007_access_requests.sql',
+  '008_crop_yields.sql'
 ];
 
 app.post('/api/admin/settings/run-migrations', async (req, res) => {
@@ -796,7 +797,7 @@ app.post('/api/admin/settings/run-migrations', async (req, res) => {
   ].filter(Boolean);
   const migrationsDir = candidates.find(d => d && fs.existsSync(d)) || candidates[0];
 
-  if (!fs.existsSync(migrationsDir)) {
+  if (!migrationsDir || !fs.existsSync(migrationsDir)) {
     return res.status(503).json({
       error: 'Migrations directory not found',
       message: `Set MIGRATIONS_DIR or COMPOSE_PROJECT_DIR. Looked at: ${migrationsDir}`,
@@ -814,7 +815,22 @@ app.post('/api/admin/settings/run-migrations', async (req, res) => {
       }
       try {
         const sql = fs.readFileSync(filePath, 'utf8');
-        await query(sql);
+        const statements = sql
+          .split(/;\s*[\r\n]+/)
+          .map((s) => s.replace(/^\s*--[^\n]*\n?/gm, '').trim())
+          .filter((s) => s.length > 0 && !s.startsWith('--'));
+        for (const stmt of statements) {
+          const s = stmt.endsWith(';') ? stmt : stmt + ';';
+          try {
+            await query(s);
+          } catch (stmtErr) {
+            const code = stmtErr.code;
+            const msg = (stmtErr.message || '').toLowerCase();
+            const isAlreadyExists = code === '42P07' || code === '42710' || msg.includes('already exists');
+            if (isAlreadyExists) continue;
+            throw stmtErr;
+          }
+        }
         results.push({ file, status: 'ok' });
       } catch (err) {
         results.push({ file, status: 'error', message: err.message });
@@ -841,6 +857,17 @@ app.post('/api/admin/settings/run-migrations', async (req, res) => {
   }
 });
 
+// Settings: get rebuild config (project dir for docker-compose)
+app.get('/api/admin/settings/rebuild-config', (req, res) => {
+  const projectDir = process.env.COMPOSE_PROJECT_DIR || process.env.DOCKER_COMPOSE_DIR || process.cwd();
+  const configured = !!(process.env.COMPOSE_PROJECT_DIR || process.env.DOCKER_COMPOSE_DIR);
+  res.json({
+    projectDir,
+    configured,
+    hint: configured ? undefined : 'Set COMPOSE_PROJECT_DIR or DOCKER_COMPOSE_DIR to your project directory for rebuild from UI.'
+  });
+});
+
 // Settings: rebuild Docker image with --no-cache and restart container
 const ALLOWED_REBUILD_SERVICES = ['auth-service', 'api-gateway', 'farmer-service', 'admin-service', 'device-service', 'system-service'];
 app.post('/api/admin/settings/rebuild-service', async (req, res) => {
@@ -852,15 +879,16 @@ app.post('/api/admin/settings/rebuild-service', async (req, res) => {
       command: 'Run manually: docker compose build --no-cache auth-service && docker compose up -d auth-service'
     });
   }
-  const projectDir = process.env.COMPOSE_PROJECT_DIR || process.env.DOCKER_COMPOSE_DIR;
-  if (!projectDir) {
+  const projectDir = process.env.COMPOSE_PROJECT_DIR || process.env.DOCKER_COMPOSE_DIR || process.cwd();
+  const composeFile = path.join(projectDir, 'docker-compose.yml');
+  if (!fs.existsSync(composeFile)) {
     return res.status(503).json({
       error: 'Rebuild not configured',
-      message: 'Set COMPOSE_PROJECT_DIR to your project directory (where docker-compose.yml lives) to enable rebuild from UI.',
-      command: `docker compose build --no-cache ${service} && docker compose up -d ${service}`
+      message: 'docker-compose.yml not found. Set COMPOSE_PROJECT_DIR to your project directory (where docker-compose.yml lives).',
+      projectDir,
+      command: `cd "${projectDir}" && docker compose build --no-cache ${service} && docker compose up -d ${service}`
     });
   }
-  const composeFile = path.join(projectDir, 'docker-compose.yml');
   const cmd = `docker compose -f "${composeFile}" build --no-cache ${service} && docker compose -f "${composeFile}" up -d ${service}`;
   try {
     const { stdout, stderr } = await execAsync(cmd, {
@@ -939,6 +967,30 @@ app.get('/api/admin/health', async (_, res) => {
   }
 });
 
+// Preflight: check if migrations can run (DB + migrations dir)
+app.get('/api/admin/settings/migration-ready', async (req, res) => {
+  const candidates = [
+    process.env.MIGRATIONS_DIR,
+    process.env.COMPOSE_PROJECT_DIR && path.join(process.env.COMPOSE_PROJECT_DIR, 'databases/postgres/migrations'),
+    path.join(__dirname, 'migrations'),
+    path.join(__dirname, '..', '..', 'databases/postgres/migrations')
+  ].filter(Boolean);
+  const migrationsDir = candidates.find(d => d && fs.existsSync(d)) || candidates[0];
+  const migrationsDirOk = !!(migrationsDir && fs.existsSync(migrationsDir));
+  let dbOk = false;
+  try {
+    await query('SELECT 1');
+    dbOk = true;
+  } catch (_) {}
+  const ready = dbOk && migrationsDirOk;
+  res.json({
+    ready,
+    dbOk,
+    migrationsDirOk,
+    error: ready ? undefined : (!dbOk ? 'Database not connected' : !migrationsDirOk ? 'Migrations directory not found' : undefined)
+  });
+});
+
 app.get('/api/admin/settings/migration-status', async (req, res) => {
   const checks = [
     { id: 'init', name: 'Base schema (init.sql)', test: "SELECT 1 FROM users LIMIT 1" },
@@ -948,7 +1000,8 @@ app.get('/api/admin/settings/migration-status', async (req, res) => {
     { id: '004', name: '004_add_soft_delete', test: "SELECT 1 FROM information_schema.columns WHERE table_name='farmers' AND column_name='deleted_at' LIMIT 1" },
     { id: '005', name: '005_sensor_robot_registration', test: "SELECT 1 FROM information_schema.columns WHERE table_name='system_sensors' AND column_name='registration_status' LIMIT 1" },
     { id: '006', name: '006_system_config', test: "SELECT 1 FROM system_logs LIMIT 1" },
-    { id: '007', name: '007_access_requests', test: "SELECT 1 FROM access_requests LIMIT 1" }
+    { id: '007', name: '007_access_requests', test: "SELECT 1 FROM access_requests LIMIT 1" },
+    { id: '008', name: '008_crop_yields', test: "SELECT 1 FROM crop_yield_records LIMIT 1" }
   ];
   const results = [];
   try {

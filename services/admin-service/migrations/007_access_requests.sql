@@ -16,6 +16,6 @@ CREATE TABLE IF NOT EXISTS access_requests (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_access_requests_status ON access_requests(status);
-CREATE INDEX idx_access_requests_email ON access_requests(email);
-CREATE INDEX idx_access_requests_created_at ON access_requests(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status);
+CREATE INDEX IF NOT EXISTS idx_access_requests_email ON access_requests(email);
+CREATE INDEX IF NOT EXISTS idx_access_requests_created_at ON access_requests(created_at DESC);

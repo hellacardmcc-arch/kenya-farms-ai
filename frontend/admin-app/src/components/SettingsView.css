@@ -224,13 +224,26 @@
 .maintenance-health {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
   margin-bottom: 24px;
   padding: 16px;
   background: #f8fafc;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
+}
+
+.maintenance-health h3 {
+  margin: 0 0 4px 0;
+  width: 100%;
+}
+
+.maintenance-health-desc {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  color: #64748b;
+  width: 100%;
+  max-width: 600px;
 }
 
 .maintenance-health-actions {
@@ -337,6 +350,113 @@
   color: #dc2626;
 }
 
+.migration-progress {
+  padding: 12px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.migration-progress-text {
+  margin: 0;
+  font-size: 14px;
+  color: #92400e;
+}
+
+.migration-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: migrationOverlayFadeIn 0.2s ease-out;
+}
+
+@keyframes migrationOverlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.migration-overlay-content {
+  background: white;
+  border-radius: 12px;
+  padding: 32px 48px;
+  min-width: 320px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.migration-loading-bar {
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.migration-loading-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #06b6d4);
+  border-radius: 4px;
+  transition: width 0.3s ease-out;
+}
+
+.migration-results {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.migration-results h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.migration-results-list {
+  margin: 0;
+  padding-left: 20px;
+  list-style: none;
+}
+
+.migration-result-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.migration-result-item.ok {
+  color: #059669;
+}
+
+.migration-result-item.skipped {
+  color: #64748b;
+}
+
+.migration-result-item.error {
+  color: #dc2626;
+}
+
+.migration-confirm-modal {
+  max-width: 420px;
+}
+
+.migration-confirm-modal p {
+  margin-bottom: 16px;
+  color: #475569;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
 .maintenance-rebuild {
   margin-bottom: 24px;
   padding: 16px;
@@ -355,6 +475,46 @@
   margin-bottom: 12px;
   color: #15803d;
   font-size: 13px;
+}
+
+.maintenance-rebuild .rebuild-project-dir {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maintenance-rebuild .rebuild-project-dir code {
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.btn-rebuild-admin {
+  padding: 10px 20px;
+  background: #059669;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-rebuild-admin:hover:not(:disabled) {
+  background: #047857;
+}
+
+.btn-rebuild-admin:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.maintenance-rebuild-other {
+  margin-top: 16px;
 }
 
 .maintenance-rebuild code {

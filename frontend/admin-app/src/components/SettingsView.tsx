@@ -12,8 +12,10 @@ import {
   requestReconnectDb,
   requestSystemRestart,
   requestRebuildService,
+  getRebuildConfig,
   requestRunMigrations,
   getMigrationStatus,
+  checkMigrationReady,
   type SystemConfig,
   type SystemLog,
   type RunMigrationsResult
@@ -55,9 +57,14 @@ const SettingsView: React.FC = () => {
   // Rebuild service
   const [rebuildService, setRebuildService] = useState<string>('');
   const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildConfig, setRebuildConfig] = useState<{ projectDir: string; configured: boolean; hint?: string } | null>(null);
 
   // Run migrations
   const [migrating, setMigrating] = useState(false);
+  const [migrationProgress, setMigrationProgress] = useState(0);
+  const [migrationResults, setMigrationResults] = useState<{ file: string; status: string; message?: string }[] | null>(null);
+  const [migrationConfirmOpen, setMigrationConfirmOpen] = useState(false);
+  const [migrationOverlayOpen, setMigrationOverlayOpen] = useState(false);
 
   // Force reconnect DB
   const [reconnecting, setReconnecting] = useState(false);
@@ -103,10 +110,20 @@ const SettingsView: React.FC = () => {
     loadConfig();
   }, [token]);
 
+  const loadRebuildConfig = () => {
+    if (!token) return;
+    getRebuildConfig(token)
+      .then(setRebuildConfig)
+      .catch(() => setRebuildConfig(null));
+  };
+
   useEffect(() => {
     if (activeTab === 'logs') loadLogs();
     if (activeTab === 'audit') loadAuditLogs();
-    if (activeTab === 'maintenance') loadHealth();
+    if (activeTab === 'maintenance') {
+      loadHealth();
+      loadRebuildConfig();
+    }
   }, [token, activeTab, logLevel]);
 
   const handleSavePort = async () => {
@@ -164,8 +181,9 @@ const SettingsView: React.FC = () => {
     try {
       const result = await requestReconnectDb(token);
       if (result.ok) {
+        await loadHealth();
         setHealth({ status: 'ok', db: 'connected' });
-        setMessage({ type: 'success', text: result.message || 'Database reconnected successfully.' });
+        setMessage({ type: 'success', text: result.message || '✓ Database reconnected successfully. Connection pool refreshed.' });
       } else {
         setMessage({ type: 'error', text: result.message || result.error || 'Reconnect failed' });
       }
@@ -266,36 +284,144 @@ const SettingsView: React.FC = () => {
     }
   };
 
-  const handleRunMigrations = async () => {
+  const runMigrationFlow = async () => {
     if (!token) return;
+    setMigrationConfirmOpen(false);
+    setMigrationOverlayOpen(true);
     setMigrating(true);
+    setMigrationProgress(0);
     setMessage(null);
+    setMigrationResults(null);
+
+    const setProgress = (p: number) => {
+      setMigrationProgress((prev) => Math.max(prev, p));
+    };
+
+    let lastError: string | null = null;
+    let attempts = 0;
+    const maxAttempts = 2;
+
+    const attemptMigration = async (): Promise<RunMigrationsResult | null> => {
+      try {
+        const result = await requestRunMigrations(token);
+        return result;
+      } catch (err: unknown) {
+        const res = err as { response?: { data?: RunMigrationsResult | string; status?: number } };
+        const data = res?.response?.data;
+        if (typeof data === 'string' && data.includes('Cannot POST')) {
+          lastError = 'Migration route not available. Rebuild admin-service and try again.';
+        } else if (data && typeof data === 'object' && 'error' in data) {
+          lastError = (data as RunMigrationsResult).error || (data as RunMigrationsResult).message || 'Migration failed';
+        } else {
+          lastError = 'Run migrations request failed. Check admin-service is running.';
+        }
+        return null;
+      }
+    };
+
     try {
-      const result = await requestRunMigrations(token);
-      if (result.ok) {
+      setProgress(5);
+      let ready = false;
+      try {
+        const preflight = await checkMigrationReady(token);
+        ready = preflight.ready;
+        if (!ready && preflight.error) lastError = preflight.error;
+      } catch {
+        lastError = 'Preflight check failed. Admin-service may need rebuild.';
+      }
+      setProgress(15);
+
+      if (!ready && lastError?.includes('not connected')) {
+        setProgress(20);
+        try {
+          await requestReconnectDb(token);
+          await new Promise((r) => setTimeout(r, 500));
+          const retryPreflight = await checkMigrationReady(token);
+          ready = retryPreflight.ready;
+        } catch (_) {}
+        setProgress(25);
+      }
+
+      if (!ready && (lastError?.includes('route') || lastError?.includes('Rebuild') || lastError?.includes('Preflight'))) {
+        setProgress(25);
+        try {
+          await requestRebuildService(token, 'admin-service');
+          await new Promise((r) => setTimeout(r, 15000));
+          const retryPreflight = await checkMigrationReady(token);
+          ready = retryPreflight.ready;
+          if (ready) lastError = null;
+        } catch (_) {}
+        setProgress(35);
+      }
+
+      if (!ready) {
+        setProgress(100);
+        setMessage({ type: 'error', text: lastError || 'Preflight failed. Check database and admin-service.' });
+        return;
+      }
+
+      setProgress(40);
+      try {
+        await requestReconnectDb(token);
+      } catch (_) {}
+      await new Promise((r) => setTimeout(r, 300));
+      setProgress(45);
+
+      let result: RunMigrationsResult | null = null;
+      while (attempts < maxAttempts) {
+        attempts++;
+        result = await attemptMigration();
+        setProgress(45 + attempts * 25);
+        if (result?.ok) break;
+        if (result && !result.ok && result.reconnectTip) {
+          try {
+            await requestReconnectDb(token);
+            await new Promise((r) => setTimeout(r, 800));
+          } catch (_) {}
+        } else if (lastError?.includes('route') || lastError?.includes('Rebuild')) {
+          break;
+        }
+      }
+
+      setProgress(95);
+      if (result?.ok) {
+        setProgress(100);
+        setMigrationResults(result.results || []);
         setHealth({ status: 'ok', db: 'connected' });
-        setMessage({ type: 'success', text: result.message || 'All database migrations completed successfully. Connection refreshed.' });
+        setMessage({ type: 'success', text: result.message || 'All database migrations completed successfully.' });
+        handleCheckMigrationStatus();
       } else {
-        const tip = result.reconnectTip ? ' Click Force Reconnect, then try again.' : '';
-        setMessage({ type: 'error', text: (result.error || result.message || 'Migrations failed') + tip });
+        setProgress(100);
+        setMigrationResults(result?.results || null);
+        const tip = result?.reconnectTip ? ' Try Force Reconnect, then run again.' : '';
+        setMessage({ type: 'error', text: (result?.error || result?.message || lastError || 'Migrations failed') + tip });
       }
     } catch (err: unknown) {
+      setProgress(100);
       const res = (err as { response?: { data?: RunMigrationsResult } })?.response?.data;
-      const tip = res?.reconnectTip ? ' Click Force Reconnect, then try again.' : '';
-      setMessage({ type: 'error', text: (res?.error || res?.message || 'Run migrations failed') + tip });
+      setMigrationResults(res?.results || null);
+      setMessage({ type: 'error', text: (res?.error || res?.message || 'Unexpected error') });
     } finally {
       setMigrating(false);
+      setTimeout(() => {
+        setMigrationOverlayOpen(false);
+        setMigrationProgress(0);
+      }, 600);
     }
   };
 
-  const handleRebuildService = async () => {
-    if (!token || !rebuildService) return;
+  const handleRunMigrations = () => runMigrationFlow();
+
+  const handleRebuildService = async (serviceOverride?: string) => {
+    const svc = serviceOverride || rebuildService;
+    if (!token || !svc) return;
     setRebuilding(true);
     setMessage(null);
     try {
-      const result = await requestRebuildService(token, rebuildService);
+      const result = await requestRebuildService(token, svc);
       if (result.ok) {
-        setMessage({ type: 'success', text: result.message || `${rebuildService} rebuilt and restarted.` });
+        setMessage({ type: 'success', text: result.message || `${svc} rebuilt and restarted.` });
+        loadRebuildConfig();
       } else {
         const cmd = result.command ? ` Run manually: ${result.command}` : '';
         setMessage({ type: 'error', text: (result.error || result.message || 'Rebuild failed') + cmd });
@@ -309,6 +435,8 @@ const SettingsView: React.FC = () => {
       setRebuilding(false);
     }
   };
+
+  const handleRebuildAdminService = () => handleRebuildService('admin-service');
 
   const tabs: { id: TabId; label: string; icon: string }[] = [
     { id: 'ports', label: 'Ports', icon: '🔌' },
@@ -514,6 +642,7 @@ const SettingsView: React.FC = () => {
             <p className="settings-desc">Run health checks and maintenance tasks to resolve system issues.</p>
             <div className="maintenance-health">
               <h3>Database Health</h3>
+              <p className="maintenance-health-desc">Use <strong>Force Reconnect DB</strong> to refresh the connection pool after migrations or when the database shows disconnected.</p>
               {health ? (
                 <div className={`health-status ${health.status === 'ok' ? 'ok' : 'error'}`}>
                   <span>{health.status === 'ok' ? '🟢' : '🔴'}</span>
@@ -524,14 +653,12 @@ const SettingsView: React.FC = () => {
                 <span>—</span>
               )}
               <div className="maintenance-health-actions">
-                <button className="btn-primary" onClick={() => runMaintenance('health')} disabled={maintenanceAction !== null}>
+                <button className="btn-primary" onClick={() => runMaintenance('health')} disabled={maintenanceAction !== null || reconnecting}>
                   {maintenanceAction === 'health' ? 'Checking...' : 'Run Health Check'}
                 </button>
-                {(health?.status !== 'ok' || !health) && (
-                  <button className="btn-reconnect" onClick={handleForceReconnectDb} disabled={reconnecting}>
-                    {reconnecting ? 'Reconnecting...' : 'Force Reconnect'}
-                  </button>
-                )}
+                <button className="btn-reconnect" onClick={handleForceReconnectDb} disabled={reconnecting} title="Refresh database connection pool. Use after migrations or when DB shows disconnected.">
+                  {reconnecting ? 'Reconnecting...' : 'Force Reconnect DB'}
+                </button>
               </div>
             </div>
             <div className="maintenance-actions">
@@ -550,23 +677,51 @@ const SettingsView: React.FC = () => {
             </div>
             <div className="maintenance-migrations">
               <h3>Database Migrations</h3>
-              <p className="settings-desc">Check which migrations are applied, or run all migrations (001–007). Safe to run multiple times (uses IF NOT EXISTS).</p>
+              <p className="settings-desc">Check which migrations are applied, or run all migrations (001–008). Safe to run multiple times (uses IF NOT EXISTS).</p>
               <div className="migration-actions">
                 <button
                   className="btn-secondary"
                   onClick={handleCheckMigrationStatus}
-                  disabled={migrationStatusLoading}
+                  disabled={migrationStatusLoading || migrating}
                 >
                   {migrationStatusLoading ? 'Checking...' : 'Check Migration Status'}
                 </button>
                 <button
                   className="btn-primary"
-                  onClick={handleRunMigrations}
+                  onClick={() => setMigrationConfirmOpen(true)}
                   disabled={migrating}
                 >
                   {migrating ? 'Running migrations...' : 'Run Full Database Migrations'}
                 </button>
               </div>
+              {migrating && (
+                <div className="migration-progress">
+                  <p className="migration-progress-text">Running migrations... Please wait.</p>
+                </div>
+              )}
+              {migrationOverlayOpen && (
+                <div className="migration-overlay">
+                  <div className="migration-overlay-content">
+                    <div className="migration-loading-bar">
+                      <div className="migration-loading-fill" data-progress={migrationProgress} style={{ width: `${migrationProgress}%` }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {migrationResults && migrationResults.length > 0 && !migrating && (
+                <div className="migration-results">
+                  <h4>{migrationResults.every((r) => r.status === 'ok' || r.status === 'skipped') ? '✓ Migration results (success)' : '✗ Migration results'}</h4>
+                  <ul className="migration-results-list">
+                    {migrationResults.map((r, i) => (
+                      <li key={i} className={`migration-result-item ${r.status}`}>
+                        <span>{r.status === 'ok' ? '✓' : r.status === 'skipped' ? '○' : '✗'}</span>
+                        <span>{r.file}</span>
+                        <span>{r.status === 'ok' ? 'OK' : r.status === 'skipped' ? r.message || 'Skipped' : r.message || 'Failed'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {migrationStatus && (
                 <div className="migration-status-list">
                   <h4>Migration status</h4>
@@ -580,9 +735,38 @@ const SettingsView: React.FC = () => {
                 </div>
               )}
             </div>
+            {migrationConfirmOpen && (
+              <div className="admin-modal-overlay" onClick={() => setMigrationConfirmOpen(false)}>
+                <div className="admin-modal migration-confirm-modal" onClick={(e) => e.stopPropagation()}>
+                  <h3>Run Full Database Migrations</h3>
+                  <p>This will run all migrations (001–008) in order. Safe to run multiple times. Continue?</p>
+                  <div className="modal-actions">
+                    <button className="btn-secondary" onClick={() => setMigrationConfirmOpen(false)}>Cancel</button>
+                    <button className="btn-primary" onClick={handleRunMigrations}>Run Migrations</button>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="maintenance-rebuild">
-              <h3>Rebuild &amp; Restart Service</h3>
-              <p className="settings-desc">Rebuild Docker image with <code>--no-cache</code> and restart the container. Use when a service has outdated code (e.g. auth-service missing request-access route). Requires <code>COMPOSE_PROJECT_DIR</code> env.</p>
+              <h3>Rebuild Admin Service</h3>
+              <p className="settings-desc">Rebuild the admin-service Docker image with <code>--no-cache</code> and restart. Use when migrations or settings routes return &quot;Cannot POST&quot; or &quot;Preflight check failed&quot;.</p>
+              {rebuildConfig && (
+                <p className="rebuild-project-dir" title={rebuildConfig.projectDir}>
+                  Project dir: <code>{rebuildConfig.projectDir}</code>
+                </p>
+              )}
+              <button
+                className="btn-rebuild-admin"
+                onClick={handleRebuildAdminService}
+                disabled={rebuilding}
+                title="Runs: docker compose build --no-cache admin-service && docker compose up -d admin-service"
+              >
+                {rebuilding ? 'Rebuilding...' : 'Rebuild Admin Service'}
+              </button>
+            </div>
+            <div className="maintenance-rebuild maintenance-rebuild-other">
+              <h3>Rebuild Other Service</h3>
+              <p className="settings-desc">Rebuild any service with <code>--no-cache</code>. Use when a service has outdated code.</p>
               <div className="rebuild-controls">
                 <select
                   value={rebuildService}
@@ -600,7 +784,7 @@ const SettingsView: React.FC = () => {
                 </select>
                 <button
                   className="btn-primary"
-                  onClick={handleRebuildService}
+                  onClick={() => handleRebuildService()}
                   disabled={rebuilding || !rebuildService}
                 >
                   {rebuilding ? 'Rebuilding...' : 'Rebuild & Restart'}

@@ -119,8 +119,9 @@ services:
     environment:
       DATABASE_URL: postgresql://kfiot:${POSTGRES_PASSWORD:-kfiot_secret}@postgres:5432/kenya_farm_iot
       NOTIFICATION_SERVICE_URL: http://notification-service:4005
-      # Enable rebuild-service and run-migrations from Settings > Maintenance (Linux/Mac)
-      COMPOSE_PROJECT_DIR: /host-project
+      # Enable rebuild-service and run-migrations from Settings > Maintenance
+      # Override COMPOSE_PROJECT_DIR for your server (default: /host-project = volume mount)
+      COMPOSE_PROJECT_DIR: ${COMPOSE_PROJECT_DIR:-/host-project}
       MIGRATIONS_DIR: /host-project/databases/postgres/migrations
     volumes:
       - .:/host-project

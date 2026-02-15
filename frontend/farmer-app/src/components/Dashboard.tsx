@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getFarmerDashboard, type Crop, type WateringTask, type Alert } from '../api/farmerApi';
+import { getSensors, type Sensor } from '../api/systemApi';
 import LanguageSelector from './LanguageSelector';
 import './Dashboard.css';
 
@@ -23,21 +24,52 @@ const Dashboard = (): JSX.Element => {
       { day: 'Wed', high: 25, low: 17, condition: 'Light Rain' }
     ]
   });
-  const [moisture, setMoisture] = useState({
-    current: 45,
-    status: 'Moderate',
-    lastReading: '5 min ago',
-    history: [42, 43, 41, 44, 45, 43, 42, 45, 44, 43, 42, 41, 43, 44, 45, 46, 44, 43, 42, 45, 46, 45, 44, 43]
-  });
+  const [sensorReadings, setSensorReadings] = useState<{
+    moisture: { value: number; unit: string; lastReadingAt: string | null } | null;
+    humidity: { value: number; unit: string; lastReadingAt: string | null } | null;
+    temperature: { value: number; unit: string; lastReadingAt: string | null } | null;
+  }>({ moisture: null, humidity: null, temperature: null });
+  const [moistureHistory, setMoistureHistory] = useState<number[]>([42, 43, 41, 44, 45, 43, 42, 45, 44, 43, 42, 41, 43, 44, 45, 46, 44, 43, 42, 45, 46, 45, 44, 43]);
   const [tasks, setTasks] = useState<Array<{ id: string; crop: string; cropSwahili: string; amount: number; time: string; completed: boolean; field: string }>>([]);
   const [crops, setCrops] = useState<Array<{ id: string; name: string; swahili: string; planted: string; area: number; harvest: string; daysLeft: number; status: string; completedTasks: number; totalTasks: number }>>([]);
   const [alerts, setAlerts] = useState<Array<{ id: string; severity: string; message: string; time: string }>>([]);
   const [language, setLanguage] = useState<'sw' | 'en'>('sw');
 
+  const deriveReadings = (sensors: Sensor[]) => {
+    const byType: Record<string, Sensor[]> = {};
+    sensors.forEach((s) => {
+      const t = (s.type || '').toLowerCase();
+      if (['moisture', 'humidity', 'temperature', 'temp'].includes(t)) {
+        const key = t === 'temp' ? 'temperature' : t;
+        if (!byType[key]) byType[key] = [];
+        byType[key].push(s);
+      }
+    });
+    return {
+      moisture: byType.moisture?.length ? { value: Math.round(byType.moisture.reduce((a, s) => a + (s.value ?? 0), 0) / byType.moisture.length), unit: byType.moisture[0]?.unit || '%', lastReadingAt: byType.moisture[0]?.last_reading_at || null } : null,
+      humidity: byType.humidity?.length ? { value: Math.round(byType.humidity.reduce((a, s) => a + (s.value ?? 0), 0) / byType.humidity.length), unit: byType.humidity[0]?.unit || '%', lastReadingAt: byType.humidity[0]?.last_reading_at || null } : null,
+      temperature: byType.temperature?.length ? { value: Math.round(byType.temperature.reduce((a, s) => a + (s.value ?? 0), 0) * 10) / 10, unit: byType.temperature[0]?.unit || '°C', lastReadingAt: byType.temperature[0]?.last_reading_at || null } : null,
+    };
+  };
+
+  const formatLastReading = (iso: string | null) => {
+    if (!iso) return '—';
+    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    return language === 'sw' ? `${mins} dakika zilizopita` : `${mins} min ago`;
+  };
+
   useEffect(() => {
     if (!token) return;
-    getFarmerDashboard(token)
-      .then((data) => {
+    Promise.allSettled([getFarmerDashboard(token), getSensors(token)])
+      .then(([dashboardResult, sensorsResult]) => {
+        const data = dashboardResult.status === 'fulfilled' ? dashboardResult.value : null;
+        const sensors = sensorsResult.status === 'fulfilled' ? sensorsResult.value : [];
+        if (sensors.length) {
+          setSensorReadings(deriveReadings(sensors));
+          const m = sensors.find((s) => (s.type || '').toLowerCase() === 'moisture');
+          if (m?.value != null) setMoistureHistory((prev) => [...prev.slice(1), m.value]);
+        }
+        if (!data) return;
         setFarmer({
           name: data.farmer.name || user?.name || 'Farmer',
           phone: data.farmer.phone || '',
@@ -86,14 +118,14 @@ const Dashboard = (): JSX.Element => {
 
   const t: Record<string, Record<string, string>> = {
     en: {
-      moisture: "Soil Moisture", lastReading: "Last reading", todayTasks: "Today's Watering Tasks", tasks: "tasks",
+      moisture: "Soil Moisture", humidity: "Humidity", temperature: "Temperature", lastReading: "Last reading", todayTasks: "Today's Watering Tasks", tasks: "tasks",
       myCrops: "My Crops", active: "active", planted: "Planted", area: "Area", harvest: "Harvest", daysLeft: "days left",
       viewDetails: "View Details", addCrop: "Add New Crop", history: "Moisture History", alerts: "Alerts", new: "new",
       quickActions: "Quick Actions", waterToday: "Water Today", plantNew: "Plant New", callSupport: "Call Support",
       help: "Help", home: "Home", crops: "Crops", water: "Water", stats: "Stats", profile: "Profile"
     },
     sw: {
-      moisture: "Unyevu wa Udongo", lastReading: "Sensa ya mwisho", todayTasks: "Kumwagilia Leo", tasks: "kazi",
+      moisture: "Unyevu wa Udongo", humidity: "Unyevu wa Hewa", temperature: "Joto", lastReading: "Sensa ya mwisho", todayTasks: "Kumwagilia Leo", tasks: "kazi",
       myCrops: "Mazao Yangu", active: "yanayolimwa", planted: "Ilipandwa", area: "Eneo", harvest: "Kuvuna",
       daysLeft: "siku zimesalia", viewDetails: "Angalia", addCrop: "Panda Zao Jipya", history: "Historia ya Unyevu",
       alerts: "Arifa", new: "mpya", quickActions: "Vitendo Haraka", waterToday: "Mwagilia Leo", plantNew: "Panda Upya",
@@ -103,13 +135,29 @@ const Dashboard = (): JSX.Element => {
 
   const currentLang = t[language];
 
-  const getMoistureStatus = (): { class: string; text: string } => {
-    if (moisture.current < 30) return { class: 'low', text: language === 'sw' ? 'Inahitaji Maji' : 'Critical' };
-    if (moisture.current < 60) return { class: 'medium', text: language === 'sw' ? 'Wastani' : 'Moderate' };
-    return { class: 'good', text: language === 'sw' ? 'Nzuri' : 'Good' };
+  const getBarStatus = (type: 'moisture' | 'humidity' | 'temperature', value: number): string => {
+    if (type === 'moisture') {
+      if (value < 30) return 'low';
+      if (value < 60) return 'medium';
+      return 'good';
+    }
+    if (type === 'humidity') {
+      if (value < 20 || value > 90) return 'low';
+      if (value < 40 || value > 75) return 'medium';
+      return 'good';
+    }
+    if (type === 'temperature') {
+      if (value < 10 || value > 38) return 'low';
+      if (value < 18 || value > 32) return 'medium';
+      return 'good';
+    }
+    return 'medium';
   };
 
-  const moistureStatus = getMoistureStatus();
+  const getBarFillPercent = (type: 'moisture' | 'humidity' | 'temperature', value: number): number => {
+    if (type === 'moisture' || type === 'humidity') return Math.min(100, Math.max(0, value));
+    return Math.min(100, Math.max(0, (value / 50) * 100));
+  };
 
   const completeTask = (taskId: string): void => {
     setTasks(tasks.map(task => task.id === taskId ? { ...task, completed: true } : task));
@@ -160,21 +208,32 @@ const Dashboard = (): JSX.Element => {
         </div>
       </div>
 
-      <div className="moisture-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-          <h3>{currentLang.moisture}</h3>
-          <span style={{ fontSize: '12px', color: '#64748b' }}>{currentLang.lastReading}: {moisture.lastReading}</span>
-        </div>
-        <div className="moisture-value">
-          <span className={`moisture-indicator moisture-${moistureStatus.class}`}></span>
-          {moisture.current}%
-        </div>
-        <div className="moisture-bar">
-          <div className={`moisture-fill ${moistureStatus.class}`} style={{ width: `${moisture.current}%` }}></div>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontSize: '14px' }}>
-          <span>{moistureStatus.text}</span>
-          <span>{language === 'sw' ? 'Wagilia siku 2' : 'Water in 2 days'}</span>
+      <div className="sensor-indicators-card">
+        <h3 style={{ marginBottom: '16px' }}>{language === 'sw' ? 'Vipima Vya Shamba' : 'Farm Sensor Readings'}</h3>
+        <div className="sensor-indicators-grid">
+          {(['moisture', 'humidity', 'temperature'] as const).map((key) => {
+            const r = sensorReadings[key];
+            const label = currentLang[key];
+            const value = r?.value ?? (key === 'moisture' ? 45 : key === 'humidity' ? 62 : 27);
+            const unit = r?.unit ?? (key === 'temperature' ? '°C' : '%');
+            const status = getBarStatus(key, value);
+            const fillPct = getBarFillPercent(key, value);
+            return (
+              <div key={key} className="sensor-indicator-bar">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <span className="sensor-indicator-label">{label}</span>
+                  <span style={{ fontSize: '12px', color: '#64748b' }}>{formatLastReading(r?.lastReadingAt ?? null)}</span>
+                </div>
+                <div className="sensor-indicator-value">
+                  <span className={`moisture-indicator moisture-${status}`}></span>
+                  {value}{unit}
+                </div>
+                <div className="moisture-bar">
+                  <div className={`moisture-fill ${status}`} style={{ width: `${fillPct}%` }}></div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -224,11 +283,11 @@ const Dashboard = (): JSX.Element => {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
               <span style={{ fontSize: '12px', color: '#64748b' }}>{crop.completedTasks}/{crop.totalTasks} {language === 'sw' ? 'kumwagilia' : 'waterings'}</span>
-              <button style={{ color: '#3b82f6', border: 'none', background: 'none', cursor: 'pointer' }}>{currentLang.viewDetails} →</button>
+              <button type="button" style={{ color: '#3b82f6', border: 'none', background: 'none', cursor: 'pointer' }} onClick={() => navigate('/crops')}>{currentLang.viewDetails} →</button>
             </div>
           </div>
         ))}
-        <button className="quick-action-btn" style={{ margin: '8px 0' }}>
+        <button type="button" className="quick-action-btn" style={{ margin: '8px 0' }} onClick={() => navigate('/crops')}>
           <i className="fas fa-plus-circle"></i>
           <span>{currentLang.addCrop}</span>
         </button>
@@ -237,7 +296,7 @@ const Dashboard = (): JSX.Element => {
       <div className="chart-container">
         <h3 style={{ marginBottom: '12px' }}>{currentLang.history}</h3>
         <div style={{ height: '140px', display: 'flex', alignItems: 'flex-end', gap: '4px' }}>
-          {moisture.history.slice(-14).map((value, i) => (
+          {moistureHistory.slice(-14).map((value, i) => (
             <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{ height: `${value * 1.5}px`, width: '100%', background: value < 30 ? '#dc2626' : value < 60 ? '#f59e0b' : '#10b981', borderRadius: '2px 2px 0 0' }}></div>
             </div>
@@ -263,11 +322,12 @@ const Dashboard = (): JSX.Element => {
       </div>
 
       <div className="quick-actions">
-        <button className="quick-action-btn" onClick={() => navigate('/sensors')}><i className="fas fa-tower-broadcast"></i><span>{language === 'sw' ? 'Vipima' : 'Sensors'}</span></button>
-        <button className="quick-action-btn" onClick={() => navigate('/robots')}><i className="fas fa-robot"></i><span>{language === 'sw' ? 'Roboti' : 'Robots'}</span></button>
-        <button className="quick-action-btn"><i className="fas fa-tint"></i><span>{currentLang.waterToday}</span></button>
-        <button className="quick-action-btn"><i className="fas fa-seedling"></i><span>{currentLang.plantNew}</span></button>
-        <button className="quick-action-btn"><i className="fas fa-phone"></i><span>{currentLang.callSupport}</span></button>
+        <button type="button" className="quick-action-btn" onClick={() => navigate('/crops')}><i className="fas fa-seedling"></i><span>{currentLang.myCrops}</span></button>
+        <button type="button" className="quick-action-btn" onClick={() => navigate('/sensors')}><i className="fas fa-tower-broadcast"></i><span>{language === 'sw' ? 'Vipima' : 'Sensors'}</span></button>
+        <button type="button" className="quick-action-btn" onClick={() => navigate('/robots')}><i className="fas fa-robot"></i><span>{language === 'sw' ? 'Roboti' : 'Robots'}</span></button>
+        <button type="button" className="quick-action-btn"><i className="fas fa-tint"></i><span>{currentLang.waterToday}</span></button>
+        <button type="button" className="quick-action-btn" onClick={() => navigate('/crops')}><i className="fas fa-plus-circle"></i><span>{currentLang.addCrop}</span></button>
+        <button type="button" className="quick-action-btn"><i className="fas fa-phone"></i><span>{currentLang.callSupport}</span></button>
         <button className="quick-action-btn"><i className="fas fa-question-circle"></i><span>{currentLang.help}</span></button>
       </div>
 
@@ -275,7 +335,7 @@ const Dashboard = (): JSX.Element => {
         <div className="nav-item active"><i className="fas fa-home"></i><span>{currentLang.home}</span></div>
         <div className="nav-item" onClick={() => navigate('/sensors')}><i className="fas fa-tower-broadcast"></i><span>{language === 'sw' ? 'Vipima' : 'Sensors'}</span></div>
         <div className="nav-item" onClick={() => navigate('/robots')}><i className="fas fa-robot"></i><span>{language === 'sw' ? 'Roboti' : 'Robots'}</span></div>
-        <div className="nav-item"><i className="fas fa-seedling"></i><span>{currentLang.crops}</span></div>
+        <div className="nav-item" onClick={() => navigate('/crops')}><i className="fas fa-seedling"></i><span>{currentLang.crops}</span></div>
         <div className="nav-item"><i className="fas fa-tint"></i><span>{currentLang.water}</span></div>
         <div className="nav-item"><i className="fas fa-chart-line"></i><span>{currentLang.stats}</span></div>
         <div className="nav-item" onClick={() => navigate('/profile')}><i className="fas fa-user"></i><span>{currentLang.profile}</span></div>
