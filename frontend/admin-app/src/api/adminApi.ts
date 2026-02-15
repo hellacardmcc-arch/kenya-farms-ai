@@ -237,6 +237,11 @@ export async function getSettingsConfig(token: string): Promise<SystemConfig> {
   return res.data.config;
 }
 
+export async function seedSettingsConfig(token: string): Promise<{ ok: boolean; message?: string }> {
+  const res = await axios.post<{ ok: boolean; message?: string }>(`${API_URL}/api/admin/settings/seed-config`, {}, headers(token));
+  return res.data;
+}
+
 export async function updateSettingsConfig(
   token: string,
   key: string,

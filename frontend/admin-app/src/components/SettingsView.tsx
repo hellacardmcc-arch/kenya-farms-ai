@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   getSettingsConfig,
   updateSettingsConfig,
+  seedSettingsConfig,
   getSettingsLogs,
   addSettingsLog,
   getAuditLogs,
@@ -64,6 +65,9 @@ const SettingsView: React.FC = () => {
   // Migration status
   const [migrationStatus, setMigrationStatus] = useState<{ id: string; name: string; applied: boolean }[] | null>(null);
   const [migrationStatusLoading, setMigrationStatusLoading] = useState(false);
+
+  // Seed config
+  const [seeding, setSeeding] = useState(false);
 
   const loadConfig = () => {
     if (!token) return;
@@ -226,6 +230,22 @@ const SettingsView: React.FC = () => {
     }
   };
 
+  const handleSeedConfig = async () => {
+    if (!token) return;
+    setSeeding(true);
+    setMessage(null);
+    try {
+      await seedSettingsConfig(token);
+      setMessage({ type: 'success', text: 'Default ports and endpoints saved to database.' });
+      loadConfig();
+    } catch (err: unknown) {
+      const res = (err as { response?: { data?: { error?: string } } })?.response?.data;
+      setMessage({ type: 'error', text: res?.error || 'Failed to seed config' });
+    } finally {
+      setSeeding(false);
+    }
+  };
+
   const handleCheckMigrationStatus = async () => {
     if (!token) return;
     setMigrationStatusLoading(true);
@@ -337,6 +357,9 @@ const SettingsView: React.FC = () => {
           <div className="settings-panel">
             <h2>Service Ports</h2>
             <p className="settings-desc">Configure ports for each microservice. Changes require service restart.</p>
+            <button className="btn-secondary btn-seed-config" onClick={handleSeedConfig} disabled={seeding}>
+              {seeding ? 'Saving...' : 'Seed default ports & endpoints'}
+            </button>
             {configLoading ? (
               <div className="admin-loading">Loading...</div>
             ) : (
@@ -366,7 +389,7 @@ const SettingsView: React.FC = () => {
                   </div>
                 ))}
                 {(!config.ports || Object.keys(config.ports).length === 0) && (
-                  <p className="admin-empty">No port config. Run migration 006 to seed defaults.</p>
+                  <p className="admin-empty">No port config in database. Click &quot;Seed default ports &amp; endpoints&quot; above to save defaults.</p>
                 )}
               </div>
             )}
@@ -378,6 +401,9 @@ const SettingsView: React.FC = () => {
           <div className="settings-panel">
             <h2>Service Endpoints</h2>
             <p className="settings-desc">Base URLs for each microservice. Used for internal service-to-service calls.</p>
+            <button className="btn-secondary btn-seed-config" onClick={handleSeedConfig} disabled={seeding}>
+              {seeding ? 'Saving...' : 'Seed default ports & endpoints'}
+            </button>
             {configLoading ? (
               <div className="admin-loading">Loading...</div>
             ) : (
@@ -406,7 +432,7 @@ const SettingsView: React.FC = () => {
                   </div>
                 ))}
                 {(!config.endpoints || Object.keys(config.endpoints).length === 0) && (
-                  <p className="admin-empty">No endpoint config. Run migration 006 to seed defaults.</p>
+                  <p className="admin-empty">No endpoint config in database. Click &quot;Seed default ports &amp; endpoints&quot; above to save defaults.</p>
                 )}
               </div>
             )}

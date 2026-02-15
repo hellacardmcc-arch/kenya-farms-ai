@@ -542,15 +542,26 @@ app.put('/api/admin/users/:id/role', useDb(async (req, res) => {
   res.json({ ok: true });
 }));
 
+const DEFAULT_PORTS = { api_gateway: 5001, auth: 5002, farmer: 4002, device: 4003, analytics: 4004, notification: 4005, admin: 4006, system: 4007 };
+const DEFAULT_ENDPOINTS = { api_gateway: 'http://localhost:5001', auth: 'http://localhost:5002', farmer: 'http://localhost:4002', device: 'http://localhost:4003', analytics: 'http://localhost:4004', notification: 'http://localhost:4005', admin: 'http://localhost:4006', system: 'http://localhost:4007' };
+
+function parseConfigValue(val) {
+  if (val == null) return {};
+  if (typeof val === 'object') return val;
+  try { return typeof val === 'string' ? JSON.parse(val) : {}; } catch { return {}; }
+}
+
 // Settings: system config (ports, endpoints)
 app.get('/api/admin/settings/config', useDb(async (_, res) => {
   try {
-    const { rows } = await query('SELECT key, value, description FROM system_config');
+    const { rows } = await query('SELECT key, value FROM system_config');
     const config = {};
-    rows.forEach(r => { config[r.key] = r.value || {}; });
+    rows.forEach(r => { config[r.key] = parseConfigValue(r.value) || {}; });
+    if (!config.ports || Object.keys(config.ports).length === 0) config.ports = DEFAULT_PORTS;
+    if (!config.endpoints || Object.keys(config.endpoints).length === 0) config.endpoints = DEFAULT_ENDPOINTS;
     return res.json({ config });
   } catch (e) {
-    if (e.code === '42P01') return res.json({ config: { ports: {}, endpoints: {} } });
+    if (e.code === '42P01') return res.json({ config: { ports: DEFAULT_PORTS, endpoints: DEFAULT_ENDPOINTS } });
     throw e;
   }
 }));
@@ -567,6 +578,20 @@ app.put('/api/admin/settings/config', useDb(async (req, res) => {
     return res.json({ ok: true });
   } catch (e) {
     if (e.code === '42P01') return res.status(400).json({ error: 'Run migration 006 first' });
+    throw e;
+  }
+}));
+
+app.post('/api/admin/settings/seed-config', useDb(async (_, res) => {
+  try {
+    await query(
+      `INSERT INTO system_config (key, value) VALUES ('ports', $1), ('endpoints', $2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(DEFAULT_PORTS), JSON.stringify(DEFAULT_ENDPOINTS)]
+    );
+    return res.json({ ok: true, message: 'Default ports and endpoints seeded.' });
+  } catch (e) {
+    if (e.code === '42P01') return res.status(400).json({ error: 'Run migration 003 first' });
     throw e;
   }
 }));
