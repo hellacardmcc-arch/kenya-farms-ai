@@ -1,6 +1,6 @@
 # 🇰🇪 Kenya Farms AI - Complete Modular System
 
-**Version 2.0.0** | [GitHub](https://github.com/hellacardmcc-arch/kenya-farms-ai)
+**Version 2.1.0** | [GitHub](https://github.com/hellacardmcc-arch/kenya-farms-ai)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -52,7 +52,15 @@ kenya-farm-iot/
 npm run install:all
 ```
 
-### Run services (dev)
+### Run dev (services + farmer app)
+
+```bash
+npm run dev
+```
+
+Starts backend services and farmer app. Farmer app at http://localhost:3000.
+
+### Run services only
 
 ```bash
 npm run dev:services

@@ -3,8 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import { useAuth } from '../context/AuthContext';
-import { getFarmerDashboard, addCrop, deleteCrop, updateCropExpectedYield, getYieldRecords, addYieldRecord, createFarm, type Crop, type Farm, type YieldRecord } from '../api/farmerApi';
+import { useFarm } from '../context/FarmContext';
+import { useLanguage } from '../context/LanguageContext';
+import { getFarmerDashboard, addCrop, deleteCrop, updateCropExpectedYield, getYieldRecords, addYieldRecord, getApiErrorMessage, type Crop, type Farm, type YieldRecord } from '../api/farmerApi';
 import LanguageSelector from './LanguageSelector';
+import { AreaInput } from './AreaInput';
+import { AreaDisplay } from './AreaDisplay';
+import { useAreaUnit } from '../context/AreaUnitContext';
+import { toDisplayValue } from '../utils/areaUtils';
+import { AreaUnitSelector } from './AreaUnitSelector';
+import FarmSelectorBar from './FarmSelectorBar';
 import './MyCropsView.css';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
@@ -14,14 +22,14 @@ const SWAHILI_NAMES: Record<string, string> = { Maize: 'Mahindi', Tomatoes: 'Nya
 const MyCropsView: React.FC = () => {
   const { user, token, logout } = useAuth();
   const navigate = useNavigate();
-  const [language, setLanguage] = useState<'sw' | 'en'>('sw');
+  const { language, setLanguage } = useLanguage();
+  const { areaUnit } = useAreaUnit();
   const [crops, setCrops] = useState<Crop[]>([]);
   const [farms, setFarms] = useState<Farm[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [showAddFarm, setShowAddFarm] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [addingFarm, setAddingFarm] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [selectedReport, setSelectedReport] = useState<string | null>(null);
 
@@ -30,7 +38,6 @@ const MyCropsView: React.FC = () => {
   const [editingExpected, setEditingExpected] = useState<string | null>(null);
   const [expectedYieldVal, setExpectedYieldVal] = useState<string>('');
 
-  const [farmForm, setFarmForm] = useState({ name: '', location: '', area_hectares: 0.5 });
   const [form, setForm] = useState({
     farm_id: '',
     name: '',
@@ -52,13 +59,24 @@ const MyCropsView: React.FC = () => {
 
   const load = () => {
     if (!token) return;
-    Promise.all([getFarmerDashboard(token), getYieldRecords(token)])
-      .then(([d, y]) => {
-        setCrops(d.crops || []);
-        setFarms(d.farms || []);
-        setYields(y || []);
+    setLoadError(null);
+    Promise.allSettled([getFarmerDashboard(token), getYieldRecords(token)])
+      .then(([dResult, yResult]) => {
+        const d = dResult.status === 'fulfilled' ? dResult.value : null;
+        const y = yResult.status === 'fulfilled' ? yResult.value : [];
+        if (d) {
+          setCrops(d.crops || []);
+          setFarms(d.farms || []);
+        } else {
+          setCrops([]);
+          setFarms([]);
+          const err = dResult.status === 'rejected' ? dResult.reason : null;
+          const msg = err ? getApiErrorMessage(err, '') : '';
+          setLoadError(msg || (language === 'sw' ? 'Imeshindwa kupakia' : 'Failed to load'));
+        }
+        setYields(Array.isArray(y) ? y : []);
       })
-      .catch(() => { setCrops([]); setFarms([]); setYields([]); })
+      .catch(() => { setCrops([]); setFarms([]); setYields([]); setLoadError(language === 'sw' ? 'Imeshindwa kupakia' : 'Failed to load'); })
       .finally(() => setLoading(false));
   };
 
@@ -66,31 +84,40 @@ const MyCropsView: React.FC = () => {
     load();
   }, [token]);
 
-  const handleAddFarm = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token || !farmForm.name.trim()) {
-      alert(language === 'sw' ? 'Ingiza jina la shamba' : 'Enter farm name');
-      return;
+  const { availablePerFarm, totalAvailable, totalFarmsArea, totalAllocated } = React.useMemo(() => {
+    const farmArea: Record<string, number> = {};
+    const allocated: Record<string, number> = {};
+    let totalFarms = 0;
+    let totalAlloc = 0;
+    for (const f of farms) {
+      const ha = Number(f.area_hectares) || 0;
+      farmArea[f.id] = ha;
+      totalFarms += ha;
     }
-    setAddingFarm(true);
-    try {
-      await createFarm(token, {
-        name: farmForm.name.trim(),
-        location: farmForm.location.trim() || undefined,
-        area_hectares: farmForm.area_hectares || undefined,
-      });
-      setFarmForm({ name: '', location: '', area_hectares: 0.5 });
-      setShowAddFarm(false);
-      load();
-      alert(language === 'sw' ? 'Shamba limeongezwa!' : 'Farm added!');
-    } catch (err: unknown) {
-      const apiErr = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      const msg = apiErr || (language === 'sw' ? 'Imeshindwa kuhifadhi shamba' : 'Failed to save land');
-      alert(msg);
-    } finally {
-      setAddingFarm(false);
+    for (const c of crops) {
+      const ha = Number(c.area_hectares) || 0;
+      allocated[c.farm_id] = (allocated[c.farm_id] || 0) + ha;
+      totalAlloc += ha;
     }
-  };
+    const availablePerFarm: Record<string, number> = {};
+    for (const f of farms) {
+      availablePerFarm[f.id] = Math.max(0, (farmArea[f.id] || 0) - (allocated[f.id] || 0));
+    }
+    const totalAvailable = Math.max(0, totalFarms - totalAlloc);
+    return { availablePerFarm, totalAvailable, totalFarmsArea: totalFarms, totalAllocated: totalAlloc };
+  }, [farms, crops]);
+
+  const availableForSelectedFarm = form.farm_id ? (availablePerFarm[form.farm_id] ?? 0) : 0;
+  const hasNoLand = farms.length > 0 && totalAvailable <= 0;
+
+  useEffect(() => {
+    if (form.farm_id && availableForSelectedFarm >= 0) {
+      const current = Number(form.area_hectares) || 0;
+      if (current > availableForSelectedFarm) {
+        setForm((prev) => ({ ...prev, area_hectares: Math.max(0.1, availableForSelectedFarm) }));
+      }
+    }
+  }, [form.farm_id, form.area_hectares, availableForSelectedFarm]);
 
   const handleAddCrop = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,9 +125,21 @@ const MyCropsView: React.FC = () => {
       alert(language === 'sw' ? 'Chagua shamba na jina la mazao' : 'Select farm and crop name');
       return;
     }
+    const requestedArea = Number(form.area_hectares) || 0;
+    if (requestedArea <= 0) {
+      alert(language === 'sw' ? 'Ingiza eneo halali' : 'Enter a valid area');
+      return;
+    }
+    if (requestedArea > availableForSelectedFarm) {
+      alert(language === 'sw'
+        ? `Eneo linalohitajika (${requestedArea} ha) linazidi linalopatikana (${availableForSelectedFarm} ha). Badilisha au ongeza shamba.`
+        : `Requested area (${requestedArea} ha) exceeds available (${availableForSelectedFarm} ha). Re-allocate or register more farm.`);
+      return;
+    }
     setAdding(true);
+    setLoadError(null);
     try {
-      await addCrop(token, {
+      const newCrop = await addCrop(token, {
         farm_id: form.farm_id,
         name: form.name.trim(),
         swahili_name: form.swahili_name.trim() || undefined,
@@ -111,10 +150,11 @@ const MyCropsView: React.FC = () => {
       });
       setForm({ ...form, name: '', swahili_name: '' });
       setShowAddForm(false);
-      load();
+      setLoadError(null);
+      setCrops((prev) => [...prev, { ...newCrop, status: newCrop.status || 'growing' }]);
       alert(language === 'sw' ? 'Mazao yameongezwa!' : 'Crop added!');
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || (language === 'sw' ? 'Imeshindwa' : 'Failed');
+      const msg = getApiErrorMessage(err, language === 'sw' ? 'Imeshindwa kuongeza mazao' : 'Failed to add crop');
       alert(msg);
     } finally {
       setAdding(false);
@@ -134,8 +174,8 @@ const MyCropsView: React.FC = () => {
       setExpectedYieldVal('');
       load();
       alert(language === 'sw' ? 'Imesahihishwa!' : 'Updated!');
-    } catch {
-      alert(language === 'sw' ? 'Imeshindwa' : 'Failed');
+    } catch (err: unknown) {
+      alert(getApiErrorMessage(err, language === 'sw' ? 'Imeshindwa' : 'Failed'));
     }
   };
 
@@ -160,8 +200,7 @@ const MyCropsView: React.FC = () => {
       load();
       alert(language === 'sw' ? 'Mavuno yameandikwa!' : 'Yield recorded!');
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || (language === 'sw' ? 'Imeshindwa' : 'Failed');
-      alert(msg);
+      alert(getApiErrorMessage(err, language === 'sw' ? 'Imeshindwa kuandika mavuno' : 'Failed to record yield'));
     }
   };
 
@@ -173,8 +212,8 @@ const MyCropsView: React.FC = () => {
       await deleteCrop(token, cropId);
       load();
       alert(language === 'sw' ? 'Mazao yamefutwa' : 'Crop removed');
-    } catch {
-      alert(language === 'sw' ? 'Imeshindwa' : 'Failed');
+    } catch (err: unknown) {
+      alert(getApiErrorMessage(err, language === 'sw' ? 'Imeshindwa' : 'Failed'));
     } finally {
       setDeleting(null);
     }
@@ -203,8 +242,6 @@ const MyCropsView: React.FC = () => {
       noCrops: 'No crops yet. Add your first crop!',
       noFarms: 'Add a farm first to add crops.',
       addFarm: 'Add Farm',
-      farmName: 'Farm name',
-      farmLocation: 'Location (optional)',
       expectedYield: 'Expected yield (kg)',
       currentYield: 'Current yield',
       pastYields: 'Past yields',
@@ -213,6 +250,9 @@ const MyCropsView: React.FC = () => {
       season: 'Season',
       yieldByFarm: 'Yield by farm & season',
       yieldChart: 'Past yield per crop per season',
+      availableLand: 'Available on this farm',
+      noLandAvailable: 'No more land available. Re-allocate crops or register more farms.',
+      noLandOnFarm: 'No land available on this farm. Choose another farm or register more.',
     },
     sw: {
       title: 'Mazao Yangu',
@@ -236,8 +276,6 @@ const MyCropsView: React.FC = () => {
       noCrops: 'Hakuna mazao bado. Ongeza mazao yako ya kwanza!',
       noFarms: 'Ongeza shamba kwanza ili kuongeza mazao.',
       addFarm: 'Ongeza Shamba',
-      farmName: 'Jina la shamba',
-      farmLocation: 'Mahali (si lazima)',
       expectedYield: 'Matumaini ya mavuno (kg)',
       currentYield: 'Mavuno ya sasa',
       pastYields: 'Mavuno ya zamani',
@@ -246,6 +284,9 @@ const MyCropsView: React.FC = () => {
       season: 'Msimu',
       yieldByFarm: 'Mavuno kwa shamba na msimu',
       yieldChart: 'Mavuno ya zamani kwa mazao kwa msimu',
+      availableLand: 'Inapatikana kwenye shamba hili',
+      noLandAvailable: 'Hakuna ardhi zaidi. Badilisha ugawaji wa mazao au sajili shamba jipya.',
+      noLandOnFarm: 'Hakuna ardhi kwenye shamba hili. Chagua shamba lingine au sajili zaidi.',
     },
   };
 
@@ -295,12 +336,22 @@ const MyCropsView: React.FC = () => {
           <p style={{ fontSize: '14px', opacity: 0.9 }}>{currentLang.title}</p>
         </div>
         <div className="header-actions">
+          <AreaUnitSelector />
           <LanguageSelector language={language} onLanguageChange={setLanguage} />
           <button onClick={() => { logout(); navigate('/login'); }} className="header-btn">
             {language === 'sw' ? 'Toka' : 'Logout'}
           </button>
         </div>
       </header>
+
+      <FarmSelectorBar />
+
+      {loadError && (
+        <div className="load-error-banner" role="alert">
+          {loadError}
+          <button type="button" onClick={load} className="retry-btn">Retry</button>
+        </div>
+      )}
 
       <div className="my-crops-content">
         <button onClick={() => navigate('/')} className="back-btn">
@@ -310,64 +361,72 @@ const MyCropsView: React.FC = () => {
 
         <button
           type="button"
-          className={`add-crop-toggle ${(showAddForm || showAddFarm) ? 'expanded' : ''}`}
+          className={`add-crop-toggle ${showAddForm ? 'expanded' : ''}`}
           onClick={() => {
             if (farms.length === 0) {
-              setShowAddFarm(!showAddFarm);
-              setShowAddForm(false);
+              navigate('/farms');
             } else {
               setShowAddForm(!showAddForm);
-              setShowAddFarm(false);
+              if (!showAddForm) {
+                const firstWithLand = farms.find((f) => (availablePerFarm[f.id] ?? 0) > 0);
+                const currentAvail = form.farm_id ? (availablePerFarm[form.farm_id] ?? 0) : 0;
+                if (firstWithLand && currentAvail <= 0) {
+                  const avail = availablePerFarm[firstWithLand.id] ?? 0;
+                  setForm((prev) => ({ ...prev, farm_id: firstWithLand.id, area_hectares: Math.min(0.5, avail) }));
+                }
+              }
             }
           }}
         >
           <span>➕ {farms.length === 0 ? currentLang.addFarm : currentLang.addCrop}</span>
-          <span className="toggle-icon">{(showAddForm || showAddFarm) ? '▼' : '▶'}</span>
+          <span className="toggle-icon">{showAddForm ? '▼' : '▶'}</span>
         </button>
 
         {farms.length === 0 && (
-          <div className="add-farm-section">
+          <div className="no-farms-cta">
             <p className="no-farms-msg">{currentLang.noFarms}</p>
-            <button type="button" className="add-farm-btn" onClick={() => setShowAddFarm(!showAddFarm)}>
-              {showAddFarm ? '▼' : '▶'} {currentLang.addFarm}
+            <button type="button" className="btn-go-farms" onClick={() => navigate('/farms')}>
+              {currentLang.addFarm} →
             </button>
-            {showAddFarm && (
-              <form className="add-farm-form" onSubmit={handleAddFarm}>
-                <div className="form-row">
-                  <label htmlFor="farm-name">{currentLang.farmName}</label>
-                  <input id="farm-name" type="text" value={farmForm.name} onChange={(e) => setFarmForm({ ...farmForm, name: e.target.value })} required placeholder={currentLang.farmName} />
-                </div>
-                <div className="form-row">
-                  <label htmlFor="farm-location">{currentLang.farmLocation}</label>
-                  <input id="farm-location" type="text" value={farmForm.location} onChange={(e) => setFarmForm({ ...farmForm, location: e.target.value })} placeholder={currentLang.farmLocation} />
-                </div>
-                <div className="form-row">
-                  <label htmlFor="farm-area">{currentLang.area} (ha)</label>
-                  <input id="farm-area" type="number" step="0.1" min="0.1" value={farmForm.area_hectares} onChange={(e) => setFarmForm({ ...farmForm, area_hectares: parseFloat(e.target.value) || 0.5 })} />
-                </div>
-                <div className="form-actions">
-                  <button type="button" onClick={() => setShowAddFarm(false)}>{currentLang.cancel}</button>
-                  <button type="submit" disabled={addingFarm}>{addingFarm ? '...' : currentLang.addFarm}</button>
-                </div>
-              </form>
-            )}
           </div>
         )}
 
-        {showAddForm && (
+        {hasNoLand && (
+          <div className="no-land-banner" role="alert">
+            {currentLang.noLandAvailable}
+            <div className="no-land-actions">
+              <button type="button" onClick={() => navigate('/farms')}>
+                {currentLang.addFarm}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showAddForm && farms.length > 0 && (
           <form className="add-crop-form" onSubmit={handleAddCrop}>
+            {form.farm_id && availableForSelectedFarm <= 0 && (
+              <div className="no-land-on-farm-banner" role="alert">{currentLang.noLandOnFarm}</div>
+            )}
             <div className="form-row">
               <label htmlFor="farm-select">{currentLang.selectFarm}</label>
               <select
                 id="farm-select"
                 value={form.farm_id}
-                onChange={(e) => setForm({ ...form, farm_id: e.target.value })}
+                onChange={(e) => {
+                  const fid = e.target.value;
+                  const avail = fid ? (availablePerFarm[fid] ?? 0) : 0;
+                  const current = Number(form.area_hectares) || 0.5;
+                  const newArea = avail >= 0.1 ? Math.min(Math.max(0.1, current), avail) : 0;
+                  setForm({ ...form, farm_id: fid, area_hectares: newArea });
+                }}
                 required
                 aria-label={currentLang.selectFarm}
               >
                 <option value="">{currentLang.selectFarm}</option>
                 {farms.map((f) => (
-                  <option key={f.id} value={f.id}>{f.name || f.id}</option>
+                  <option key={f.id} value={f.id}>
+                    {f.name || f.id}{f.unique_code ? ` (${f.unique_code})` : ''}
+                  </option>
                 ))}
               </select>
             </div>
@@ -414,18 +473,22 @@ const MyCropsView: React.FC = () => {
                 aria-label={currentLang.harvest}
               />
             </div>
-            <div className="form-row">
-              <label htmlFor="area-hectares">{currentLang.area} (ha)</label>
-              <input
-                id="area-hectares"
-                type="number"
-                step="0.1"
-                min="0.1"
-                value={form.area_hectares}
-                onChange={(e) => setForm({ ...form, area_hectares: parseFloat(e.target.value) || 0.5 })}
-                aria-label={currentLang.area}
-              />
-            </div>
+            <AreaInput
+              id="area-hectares"
+              label={currentLang.area}
+              value={form.area_hectares}
+              onChange={(ha) => {
+                const val = ha ?? 0;
+                if (availableForSelectedFarm <= 0) return;
+                const capped = Math.min(Math.max(0.1, val), availableForSelectedFarm);
+                setForm({ ...form, area_hectares: capped });
+              }}
+              min={0.1}
+              max={availableForSelectedFarm > 0 ? availableForSelectedFarm : undefined}
+              hint={form.farm_id && availableForSelectedFarm >= 0
+                ? `${currentLang.availableLand}: ${toDisplayValue(availableForSelectedFarm, areaUnit)} ${areaUnit}`
+                : undefined}
+            />
             <div className="form-row">
               <label htmlFor="expected-yield">{currentLang.expectedYield}</label>
               <input
@@ -441,7 +504,9 @@ const MyCropsView: React.FC = () => {
             </div>
             <div className="form-actions">
               <button type="button" onClick={() => setShowAddForm(false)}>{currentLang.cancel}</button>
-              <button type="submit" disabled={adding}>{adding ? '...' : currentLang.addCrop}</button>
+              <button type="submit" disabled={adding || availableForSelectedFarm <= 0}>
+                {adding ? '...' : currentLang.addCrop}
+              </button>
             </div>
           </form>
         )}
@@ -519,7 +584,7 @@ const MyCropsView: React.FC = () => {
                   <div className="crop-card-meta">
                     <div>📅 {currentLang.planted}: {report.planted.toLocaleDateString()}</div>
                     <div>🌾 {currentLang.harvest}: {report.harvest.toLocaleDateString()}</div>
-                    <div>📍 {currentLang.area}: {Number(crop.area_hectares) || 0} ha</div>
+                    <div>📍 {currentLang.area}: <AreaDisplay hectares={crop.area_hectares} /></div>
                     <div>⏳ {report.daysLeft} {currentLang.daysLeft}</div>
                   </div>
                   <div className="crop-yield-section">
@@ -668,6 +733,7 @@ const MyCropsView: React.FC = () => {
         <div className="nav-item" onClick={() => navigate('/sensors')}><i className="fas fa-tower-broadcast"></i><span>{language === 'sw' ? 'Vipima' : 'Sensors'}</span></div>
         <div className="nav-item" onClick={() => navigate('/robots')}><i className="fas fa-robot"></i><span>{language === 'sw' ? 'Roboti' : 'Robots'}</span></div>
         <div className="nav-item active"><i className="fas fa-seedling"></i><span>{currentLang.title}</span></div>
+        <div className="nav-item" onClick={() => navigate('/farms')}><i className="fas fa-tractor"></i><span>{language === 'sw' ? 'Mashamba' : 'Farms'}</span></div>
         <div className="nav-item" onClick={() => navigate('/profile')}><i className="fas fa-user"></i><span>{language === 'sw' ? 'Wasifu' : 'Profile'}</span></div>
       </nav>
     </div>

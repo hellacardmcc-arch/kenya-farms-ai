@@ -1,5 +1,7 @@
 -- Kenya Farm IoT - PostgreSQL Schema
 -- Used by: auth-service, farmer-service, admin-service
+-- Unified: All farm creation (farmer app Add Farm, admin register, admin approve) writes to farms table.
+-- farmer_id binds each farm to farmers.id; one farmer can own multiple farms.
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -21,12 +23,13 @@ CREATE TABLE farmers (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name VARCHAR(255),
   phone VARCHAR(20),
-  region VARCHAR(100),
+  location VARCHAR(100),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_farmers_user_id ON farmers(user_id);
 
+-- Farms: each farm belongs to one farmer via farmer_id. One farmer can own multiple farms.
 CREATE TABLE farms (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   farmer_id UUID NOT NULL REFERENCES farmers(id) ON DELETE CASCADE,
@@ -36,6 +39,7 @@ CREATE TABLE farms (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Index for consolidating all farms per farmer (farmer_id binds farm to farmer)
 CREATE INDEX idx_farms_farmer_id ON farms(farmer_id);
 
 CREATE TABLE crops (

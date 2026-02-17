@@ -56,11 +56,22 @@ const targets = {
 };
 
 app.use('/api/auth', createProxyMiddleware({ target: targets.auth, changeOrigin: true }));
+app.use('/api/farms', createProxyMiddleware({ target: targets.farmers, changeOrigin: true }));
 app.use('/api/farmers', createProxyMiddleware({ target: targets.farmers, changeOrigin: true }));
 app.use('/api/devices', createProxyMiddleware({ target: targets.devices, changeOrigin: true }));
 app.use('/api/analytics', createProxyMiddleware({ target: targets.analytics, changeOrigin: true }));
 app.use('/api/notifications', createProxyMiddleware({ target: targets.notifications, changeOrigin: true }));
-app.use('/api/admin', createProxyMiddleware({ target: targets.admin, changeOrigin: true }));
+// Admin proxy: longer timeout for migrations (can take several minutes)
+app.use('/api/admin', createProxyMiddleware({
+  target: targets.admin,
+  changeOrigin: true,
+  proxyTimeout: 10 * 60 * 1000,
+  timeout: 10 * 60 * 1000
+}));
 app.use('/api/system', createProxyMiddleware({ target: targets.system, changeOrigin: true }));
 
-app.listen(PORT, () => console.log(`🇰🇪 API Gateway :${PORT}`));
+const server = app.listen(PORT, () => console.log(`🇰🇪 API Gateway :${PORT}`));
+// Prevent 504 on long-running requests (migrations, rebuilds)
+server.timeout = 10 * 60 * 1000;
+server.keepAliveTimeout = 65 * 1000;
+if (server.headersTimeout !== undefined) server.headersTimeout = 10 * 60 * 1000;

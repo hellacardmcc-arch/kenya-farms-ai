@@ -10,11 +10,29 @@ const pool = new pg.Pool({
   ...(isRender && { ssl: { rejectUnauthorized: false } }),
 });
 
+pool.on('error', (err) => {
+  console.error('[farmer-service] PostgreSQL pool error:', err.message);
+  if (err.code === 'ECONNREFUSED') {
+    console.error('[farmer-service] Database not reachable. Start Docker: docker-compose up -d');
+  }
+});
+
 export async function query(text, params) {
   const client = await pool.connect();
   try {
     return await client.query(text, params);
   } finally {
     client.release();
+  }
+}
+
+export async function checkConnection() {
+  try {
+    await pool.query('SELECT 1');
+  } catch (err) {
+    const msg = err.code === 'ECONNREFUSED'
+      ? 'PostgreSQL not reachable at localhost:5432. Start databases: docker-compose up -d'
+      : err.message;
+    throw new Error(`Database connection failed: ${msg}`);
   }
 }

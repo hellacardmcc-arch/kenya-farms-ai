@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import { getRobots, getAvailableRobots, activateRobot, controlRobot, type Robot } from '../api/systemApi';
 import LanguageSelector from './LanguageSelector';
+import FarmSelectorBar from './FarmSelectorBar';
 import './RobotsView.css';
 
 const RobotsView: React.FC = () => {
   const { token, logout } = useAuth();
   const navigate = useNavigate();
-  const [language, setLanguage] = useState<'sw' | 'en'>('sw');
+  const { language, setLanguage } = useLanguage();
   const [robots, setRobots] = useState<Robot[]>([]);
   const [availableRobots, setAvailableRobots] = useState<{ id: string; name: string; type?: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,6 +118,8 @@ const RobotsView: React.FC = () => {
           </button>
         </div>
       </header>
+
+      <FarmSelectorBar />
 
       <div className="robots-content">
         <button onClick={() => navigate('/')} className="back-btn">

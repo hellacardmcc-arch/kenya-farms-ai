@@ -11,6 +11,9 @@ import {
   type Crop,
   type Farm
 } from '../api/adminApi';
+import { AreaInput } from './AreaInput';
+import { AreaDisplay } from './AreaDisplay';
+import { AreaUnitSelector } from './AreaUnitSelector';
 import './AdminPage.css';
 
 const CropsView: React.FC = () => {
@@ -115,7 +118,7 @@ const CropsView: React.FC = () => {
           <div className="admin-header-actions">
             <button onClick={() => navigate('/')}>Dashboard</button>
             <button onClick={() => navigate('/users')}>👥 Admin Users</button>
-            <button onClick={() => navigate('/profile')}>👤 Profile</button>
+            <button onClick={() => navigate('/settings')}>⚙️ Settings</button>
             <button onClick={() => { logout(); navigate('/login'); }}>Logout</button>
           </div>
         </div>
@@ -126,6 +129,7 @@ const CropsView: React.FC = () => {
           <button className="btn-primary" onClick={() => { setModal('new'); setForm({ name: '', farm_id: farms[0]?.id || '', swahili_name: '', status: 'growing' }); }}>
             + Add New Crop
           </button>
+          <AreaUnitSelector />
           <label className="admin-checkbox">
             <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} />
             Show deleted
@@ -211,10 +215,11 @@ const CropsView: React.FC = () => {
                 <label>Harvest Date</label>
                 <input type="date" value={form.harvest_date || ''} onChange={(e) => setForm({ ...form, harvest_date: e.target.value })} />
               </div>
-              <div className="admin-form-field">
-                <label>Area (hectares)</label>
-                <input type="number" step="0.01" value={form.area_hectares ?? ''} onChange={(e) => setForm({ ...form, area_hectares: e.target.value ? parseFloat(e.target.value) : undefined })} />
-              </div>
+              <AreaInput
+                label="Area"
+                value={form.area_hectares ?? null}
+                onChange={(ha) => setForm({ ...form, area_hectares: ha ?? undefined })}
+              />
               <div className="admin-form-field">
                 <label>Status</label>
                 <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
@@ -253,10 +258,11 @@ const CropsView: React.FC = () => {
                 <label>Harvest Date</label>
                 <input type="date" value={form.harvest_date || ''} onChange={(e) => setForm({ ...form, harvest_date: e.target.value })} />
               </div>
-              <div className="admin-form-field">
-                <label>Area (hectares)</label>
-                <input type="number" step="0.01" value={form.area_hectares ?? ''} onChange={(e) => setForm({ ...form, area_hectares: e.target.value ? parseFloat(e.target.value) : undefined })} />
-              </div>
+              <AreaInput
+                label="Area"
+                value={form.area_hectares ?? null}
+                onChange={(ha) => setForm({ ...form, area_hectares: ha ?? undefined })}
+              />
               <div className="admin-form-field">
                 <label>Status</label>
                 <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
@@ -277,13 +283,12 @@ const CropsView: React.FC = () => {
       <div className="admin-footer">
         <span onClick={() => navigate('/')}>🏠 Dashboard</span>
         <span onClick={() => navigate('/farmers')}>👥 Farmers</span>
+        <span onClick={() => navigate('/farms')}>🌾 Farms</span>
         <span className="active">🌱 Crops</span>
         <span onClick={() => navigate('/analytics')}>📊 Analytics</span>
         <span onClick={() => navigate('/sensors')}>📡 Sensors</span>
         <span onClick={() => navigate('/robots')}>🤖 Robots</span>
-        <span onClick={() => navigate('/profile')}>👤 Profile</span>
         <span onClick={() => navigate('/settings')}>⚙️ Settings</span>
-        <span onClick={() => navigate('/requests')}>📋 Requests</span>
         <span onClick={() => navigate('/users')}>👤 Admin Users</span>
       </div>
     </div>

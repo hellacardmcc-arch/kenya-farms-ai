@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import ProfileContent from './ProfileContent';
 import {
   getSettingsConfig,
   updateSettingsConfig,
@@ -10,25 +11,39 @@ import {
   getAuditLogs,
   getAdminHealth,
   requestReconnectDb,
+  requestAlternativeDbReconnect,
+  requestStartDevServices,
+  requestRunCommand,
+  requestFixOrphanFarmers,
   requestSystemRestart,
   requestRebuildService,
+  requestRunManualRebuild,
   getRebuildConfig,
   requestRunMigrations,
   getMigrationStatus,
+  getMigrationList,
+  startSingleMigration,
+  getSingleMigrationJob,
   checkMigrationReady,
+  getServiceList,
+  checkService,
   type SystemConfig,
   type SystemLog,
-  type RunMigrationsResult
+  type RunMigrationsResult,
+  type ServiceItem,
+  type CheckServiceResult
 } from '../api/adminApi';
 import './AdminPage.css';
 import './SettingsView.css';
 
-type TabId = 'ports' | 'endpoints' | 'logs' | 'audit' | 'maintenance';
+type TabId = 'profile' | 'ports' | 'endpoints' | 'logs' | 'audit' | 'maintenance' | 'terminal';
 
 const SettingsView: React.FC = () => {
-  const { user, token, logout } = useAuth();
+  const { token, logout } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<TabId>('ports');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab') as TabId | null;
+  const [activeTab, setActiveTab] = useState<TabId>(tabParam && ['profile', 'ports', 'endpoints', 'logs', 'audit', 'maintenance', 'terminal'].includes(tabParam) ? tabParam : 'ports');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Config
@@ -65,9 +80,22 @@ const SettingsView: React.FC = () => {
   const [migrationResults, setMigrationResults] = useState<{ file: string; status: string; message?: string }[] | null>(null);
   const [migrationConfirmOpen, setMigrationConfirmOpen] = useState(false);
   const [migrationOverlayOpen, setMigrationOverlayOpen] = useState(false);
+  const [migrationList, setMigrationList] = useState<string[]>([]);
+  const migrationListScrollRef = useRef<HTMLDivElement>(null);
 
   // Force reconnect DB
   const [reconnecting, setReconnecting] = useState(false);
+  // Alternative DB Reconnect (full procedure)
+  const [alternativeDbReconnecting, setAlternativeDbReconnecting] = useState(false);
+  // Start Dev Services (npm run dev:services)
+  const [startingDevServices, setStartingDevServices] = useState(false);
+  // Fix orphan farmers
+  const [fixingOrphans, setFixingOrphans] = useState(false);
+  // Terminal
+  const [terminalCommand, setTerminalCommand] = useState('');
+  const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
+  const [terminalRunning, setTerminalRunning] = useState(false);
+  const terminalOutputRef = useRef<HTMLDivElement>(null);
 
   // Migration status
   const [migrationStatus, setMigrationStatus] = useState<{ id: string; name: string; applied: boolean }[] | null>(null);
@@ -75,6 +103,18 @@ const SettingsView: React.FC = () => {
 
   // Seed config
   const [seeding, setSeeding] = useState(false);
+
+  // Single migration
+  const [migrationListForSingle, setMigrationListForSingle] = useState<string[]>([]);
+  const [singleMigrationFile, setSingleMigrationFile] = useState<string>('');
+  const [singleMigrating, setSingleMigrating] = useState(false);
+  const [singleMigrationResult, setSingleMigrationResult] = useState<{ ok: boolean; file?: string; message?: string; reconnectTip?: string; results?: { file: string; status: string; message?: string }[] } | null>(null);
+
+  // Check individual service
+  const [serviceList, setServiceList] = useState<ServiceItem[]>([]);
+  const [checkServiceKey, setCheckServiceKey] = useState<string>('');
+  const [checkServiceResult, setCheckServiceResult] = useState<CheckServiceResult | null>(null);
+  const [checkServiceLoading, setCheckServiceLoading] = useState(false);
 
   const loadConfig = () => {
     if (!token) return;
@@ -110,6 +150,12 @@ const SettingsView: React.FC = () => {
     loadConfig();
   }, [token]);
 
+  useEffect(() => {
+    if (tabParam && ['profile', 'ports', 'endpoints', 'logs', 'audit', 'maintenance', 'terminal'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
+
   const loadRebuildConfig = () => {
     if (!token) return;
     getRebuildConfig(token)
@@ -123,6 +169,10 @@ const SettingsView: React.FC = () => {
     if (activeTab === 'maintenance') {
       loadHealth();
       loadRebuildConfig();
+      if (token) {
+        getServiceList(token).then(setServiceList).catch(() => setServiceList([]));
+        getMigrationList(token).then((r) => setMigrationListForSingle(r?.migrations || [])).catch(() => setMigrationListForSingle([]));
+      }
     }
   }, [token, activeTab, logLevel]);
 
@@ -195,6 +245,98 @@ const SettingsView: React.FC = () => {
     }
   };
 
+  const handleAlternativeDbReconnect = async () => {
+    if (!token) return;
+    setAlternativeDbReconnecting(true);
+    setMessage(null);
+    try {
+      const result = await requestAlternativeDbReconnect(token);
+      if (result.ok) {
+        await loadHealth();
+        setHealth({ status: 'ok', db: 'connected' });
+        setMessage({ type: 'success', text: result.message || '✓ Alternative DB Reconnect completed successfully. Databases (Postgres, MongoDB, Redis) are running.' });
+      } else {
+        const errMsg = result.message || result.error || 'Alternative DB Reconnect encountered errors';
+        setMessage({ type: 'error', text: errMsg });
+      }
+    } catch (err: unknown) {
+      const res = (err as { response?: { data?: { message?: string; error?: string } } })?.response?.data;
+      setMessage({ type: 'error', text: res?.message || res?.error || 'Alternative DB Reconnect failed' });
+    } finally {
+      setAlternativeDbReconnecting(false);
+    }
+  };
+
+  const handleStartDevServices = async () => {
+    if (!token) return;
+    setStartingDevServices(true);
+    setMessage(null);
+    try {
+      const result = await requestStartDevServices(token);
+      if (result.ok) {
+        setMessage({ type: 'success', text: result.message || '✓ Dev services started in background. Check your terminal.' });
+      } else {
+        setMessage({ type: 'error', text: result.message || result.error || 'Failed to start dev services' });
+      }
+    } catch (err: unknown) {
+      const res = (err as { response?: { data?: { message?: string; error?: string } } })?.response?.data;
+      setMessage({ type: 'error', text: res?.message || res?.error || 'Start dev services failed' });
+    } finally {
+      setStartingDevServices(false);
+    }
+  };
+
+  const handleFixOrphanFarmers = async () => {
+    if (!token) return;
+    setFixingOrphans(true);
+    setMessage(null);
+    try {
+      const result = await requestFixOrphanFarmers(token);
+      if (result.ok) {
+        setMessage({ type: 'success', text: result.message || 'Orphan farmers fixed.' });
+      } else {
+        setMessage({ type: 'error', text: result.message || result.error || 'Fix failed' });
+      }
+    } catch (err: unknown) {
+      const res = (err as { response?: { data?: { message?: string; error?: string } } })?.response?.data;
+      setMessage({ type: 'error', text: res?.message || res?.error || 'Fix orphan farmers failed' });
+    } finally {
+      setFixingOrphans(false);
+    }
+  };
+
+  const handleRunTerminalCommand = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!token || !terminalCommand.trim() || terminalRunning) return;
+    setTerminalRunning(true);
+    // Strip leading $ or $  (prompt char) so "npm run check-db" works even if user typed "$ npm run check-db"
+    const cmd = terminalCommand.trim().replace(/^\$\s*/, '');
+    if (!cmd) {
+      setTerminalRunning(false);
+      return;
+    }
+    setTerminalOutput((prev) => [...prev, `$ ${cmd}`]);
+    setTerminalCommand('');
+    try {
+      const result = await requestRunCommand(token, cmd);
+      const lines: string[] = [];
+      if (result.stdout) lines.push(...result.stdout.split('\n'));
+      if (result.stderr) lines.push(...result.stderr.split('\n').map((l) => `[stderr] ${l}`));
+      if (result.error && !result.stdout && !result.stderr) lines.push(result.error);
+      if (lines.length === 0) lines.push(result.ok ? '(no output)' : `Exit code: ${result.exitCode ?? 1}`);
+      setTerminalOutput((prev) => [...prev, ...lines]);
+    } catch (err: unknown) {
+      const res = (err as { response?: { data?: { message?: string; error?: string } } })?.response?.data;
+      setTerminalOutput((prev) => [...prev, `Error: ${(res as { message?: string })?.message || (res as { error?: string })?.error || 'Request failed'}`]);
+    } finally {
+      setTerminalRunning(false);
+    }
+  };
+
+  useEffect(() => {
+    terminalOutputRef.current?.scrollTo(0, terminalOutputRef.current.scrollHeight);
+  }, [terminalOutput]);
+
   const runMaintenance = async (action: string) => {
     if (!token) return;
     setMaintenanceAction(action);
@@ -212,6 +354,24 @@ const SettingsView: React.FC = () => {
       setMessage({ type: 'error', text: 'Maintenance action failed' });
     } finally {
       setMaintenanceAction(null);
+    }
+  };
+
+  const handleCheckService = async () => {
+    if (!token || !checkServiceKey) return;
+    setCheckServiceLoading(true);
+    setCheckServiceResult(null);
+    setMessage(null);
+    try {
+      const result = await checkService(token, checkServiceKey);
+      setCheckServiceResult(result);
+      const ok = result.status === 'online';
+      setMessage({ type: ok ? 'success' : 'error', text: ok ? `${result.name} is online` : `${result.name}: ${result.error || result.status} (${result.statusCode || '—'})` });
+    } catch (err: unknown) {
+      const res = (err as { response?: { data?: { error?: string } } })?.response?.data;
+      setMessage({ type: 'error', text: (res as { error?: string })?.error || 'Check failed' });
+    } finally {
+      setCheckServiceLoading(false);
     }
   };
 
@@ -264,6 +424,31 @@ const SettingsView: React.FC = () => {
     }
   };
 
+  // Auto-scroll migration list when populated and overlay is open
+  const autoScrollMigrationList = useCallback(() => {
+    const el = migrationListScrollRef.current;
+    if (!el || migrationList.length === 0) return;
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    if (maxScroll <= 0) return;
+    const duration = 4000;
+    const startTime = performance.now();
+    const animate = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      el.scrollTop = maxScroll * progress;
+      if (progress < 1) requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+  }, [migrationList.length]);
+
+  useEffect(() => {
+    if (migrationList.length > 0 && migrationOverlayOpen && migrationListScrollRef.current) {
+      // Small delay so DOM is ready
+      const t = setTimeout(() => autoScrollMigrationList(), 100);
+      return () => clearTimeout(t);
+    }
+  }, [migrationList, migrationOverlayOpen, autoScrollMigrationList]);
+
   const handleCheckMigrationStatus = async () => {
     if (!token) return;
     setMigrationStatusLoading(true);
@@ -292,10 +477,25 @@ const SettingsView: React.FC = () => {
     setMigrationProgress(0);
     setMessage(null);
     setMigrationResults(null);
+    setMigrationList([]);
 
     const setProgress = (p: number) => {
       setMigrationProgress((prev) => Math.max(prev, p));
     };
+
+    // Phase 1: Fetch migration list and auto-scroll to populate changes before migration
+    try {
+      const listRes = await getMigrationList(token);
+      const list = listRes?.migrations || [];
+      setMigrationList(list);
+      setProgress(5);
+      // Wait for auto-scroll to complete (~4s) so user sees all migrations
+      await new Promise((r) => setTimeout(r, 4500));
+      setProgress(10);
+    } catch {
+      // Fallback: use empty list, proceed without preview
+      setProgress(10);
+    }
 
     let lastError: string | null = null;
     let attempts = 0;
@@ -306,14 +506,24 @@ const SettingsView: React.FC = () => {
         const result = await requestRunMigrations(token);
         return result;
       } catch (err: unknown) {
-        const res = err as { response?: { data?: RunMigrationsResult | string; status?: number } };
-        const data = res?.response?.data;
+        const e = err as { message?: string; code?: string; response?: { data?: RunMigrationsResult | string; status?: number } };
+        const data = e?.response?.data;
+        const status = e?.response?.status;
+        const msg = (e?.message || '').toLowerCase();
         if (typeof data === 'string' && data.includes('Cannot POST')) {
           lastError = 'Migration route not available. Rebuild admin-service and try again.';
         } else if (data && typeof data === 'object' && 'error' in data) {
           lastError = (data as RunMigrationsResult).error || (data as RunMigrationsResult).message || 'Migration failed';
+        } else if (status === 502 || status === 503 || status === 504) {
+          lastError = status === 504
+            ? `Gateway timeout (504). Migration took too long. Restart API Gateway after config changes, ensure admin-service is running, then retry.`
+            : `Gateway error (${status}). Admin-service may be down. Ensure API Gateway (port 5001) and admin-service (port 4006) are running.`;
+        } else if (msg.includes('network') || msg.includes('econnrefused') || msg.includes('econnreset') || msg.includes('failed to fetch')) {
+          lastError = 'Cannot reach API. Ensure API Gateway (port 5001) and admin-service (port 4006) are running.';
+        } else if (msg.includes('timeout')) {
+          lastError = 'Migration timed out. Try again or run migrations manually via psql.';
         } else {
-          lastError = 'Run migrations request failed. Check admin-service is running.';
+          lastError = e?.message || 'Run migrations request failed. Check admin-service is running.';
         }
         return null;
       }
@@ -406,11 +616,66 @@ const SettingsView: React.FC = () => {
       setTimeout(() => {
         setMigrationOverlayOpen(false);
         setMigrationProgress(0);
+        setMigrationList([]);
       }, 600);
     }
   };
 
   const handleRunMigrations = () => runMigrationFlow();
+
+  const handleRunSingleMigration = async () => {
+    if (!token || !singleMigrationFile) return;
+    setSingleMigrating(true);
+    setSingleMigrationResult(null);
+    setMessage(null);
+    try {
+      const { jobId } = await startSingleMigration(token, singleMigrationFile);
+      const pollInterval = 1500;
+      const maxPolls = 120;
+      let polls = 0;
+      const poll = async (): Promise<void> => {
+        const job = await getSingleMigrationJob(token, jobId);
+        if (job.status === 'running') {
+          polls++;
+          if (polls >= maxPolls) {
+            setSingleMigrationResult({ ok: false, file: singleMigrationFile, message: 'Migration timed out. Check admin-service logs.' });
+            setMessage({ type: 'error', text: 'Migration timed out.' });
+            return;
+          }
+          await new Promise((r) => setTimeout(r, pollInterval));
+          return poll();
+        }
+        setSingleMigrationResult({
+          ok: job.ok ?? false,
+          file: singleMigrationFile,
+          message: job.message || job.error,
+          reconnectTip: job.reconnectTip,
+          results: job.results
+        });
+        if (job.ok) {
+          setMessage({ type: 'success', text: job.message || `${singleMigrationFile} completed successfully.` });
+          handleCheckMigrationStatus();
+        } else {
+          const tip = job.reconnectTip ? ' Try Force Reconnect, then run again.' : '';
+          setMessage({ type: 'error', text: (job.error || job.message || 'Single migration failed') + tip });
+        }
+      };
+      await poll();
+    } catch (err: unknown) {
+      const res = (err as { response?: { data?: RunMigrationsResult } })?.response?.data;
+      const errMsg = res?.message || res?.error || (err as Error)?.message || 'Single migration request failed';
+      setSingleMigrationResult({
+        ok: false,
+        file: singleMigrationFile,
+        message: errMsg,
+        reconnectTip: res?.reconnectTip,
+        results: res?.results || undefined
+      });
+      setMessage({ type: 'error', text: errMsg });
+    } finally {
+      setSingleMigrating(false);
+    }
+  };
 
   const handleRebuildService = async (serviceOverride?: string) => {
     const svc = serviceOverride || rebuildService;
@@ -438,13 +703,45 @@ const SettingsView: React.FC = () => {
 
   const handleRebuildAdminService = () => handleRebuildService('admin-service');
 
+  const handleRunManualRebuild = async () => {
+    if (!token) return;
+    setRebuilding(true);
+    setMessage(null);
+    try {
+      const result = await requestRunManualRebuild(token);
+      if (result.ok) {
+        setMessage({ type: 'success', text: result.message || 'Admin service rebuilt and restarted.' });
+        loadRebuildConfig();
+      } else {
+        setMessage({ type: 'error', text: result.error || result.message || 'Run manual rebuild failed' });
+      }
+    } catch (err: unknown) {
+      const res = (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data;
+      setMessage({ type: 'error', text: res?.error || res?.message || 'Run manual rebuild failed' });
+    } finally {
+      setRebuilding(false);
+    }
+  };
+
   const tabs: { id: TabId; label: string; icon: string }[] = [
+    { id: 'profile', label: 'Profile', icon: '👤' },
     { id: 'ports', label: 'Ports', icon: '🔌' },
     { id: 'endpoints', label: 'Endpoints', icon: '🌐' },
     { id: 'logs', label: 'System Logs', icon: '📋' },
     { id: 'audit', label: 'Audit Logs', icon: '📜' },
-    { id: 'maintenance', label: 'Maintenance', icon: '🔧' }
+    { id: 'maintenance', label: 'Maintenance', icon: '🔧' },
+    { id: 'terminal', label: 'Terminal', icon: '⌨️' }
   ];
+
+  const handleTabClick = (id: TabId) => {
+    setActiveTab(id);
+    setSearchParams(id === 'ports' ? {} : { tab: id });
+  };
+
+  const handleMaintenanceTerminalLink = () => {
+    setActiveTab('terminal');
+    setSearchParams({ tab: 'terminal' });
+  };
 
   return (
     <div className="admin-page settings-page">
@@ -457,7 +754,6 @@ const SettingsView: React.FC = () => {
           <div className="admin-header-actions">
             <button onClick={() => navigate('/')}>Dashboard</button>
             <button onClick={() => navigate('/users')}>👥 Admin Users</button>
-            <button onClick={() => navigate('/profile')}>👤 Profile</button>
             <button onClick={() => { logout(); navigate('/login'); }}>Logout</button>
           </div>
         </div>
@@ -469,7 +765,7 @@ const SettingsView: React.FC = () => {
             <button
               key={t.id}
               className={`settings-tab ${activeTab === t.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(t.id)}
+              onClick={() => handleTabClick(t.id)}
             >
               <span>{t.icon}</span> {t.label}
             </button>
@@ -478,6 +774,15 @@ const SettingsView: React.FC = () => {
 
         {message && (
           <div className={`admin-message admin-message-${message.type}`}>{message.text}</div>
+        )}
+
+        {/* Profile */}
+        {activeTab === 'profile' && (
+          <div className="settings-panel">
+            <h2>Profile</h2>
+            <p className="settings-desc">Update your account details and password.</p>
+            <ProfileContent />
+          </div>
         )}
 
         {/* Ports */}
@@ -659,7 +964,57 @@ const SettingsView: React.FC = () => {
                 <button className="btn-reconnect" onClick={handleForceReconnectDb} disabled={reconnecting} title="Refresh database connection pool. Use after migrations or when DB shows disconnected.">
                   {reconnecting ? 'Reconnecting...' : 'Force Reconnect DB'}
                 </button>
+                <button
+                  className="btn-alternative-db-reconnect"
+                  onClick={handleAlternativeDbReconnect}
+                  disabled={alternativeDbReconnecting || reconnecting}
+                  title="Full procedure: check-db, docker stop postgres, docker-compose up -d. For Docker/self-hosted only. On Render/Railway use Force Reconnect DB."
+                >
+                  {alternativeDbReconnecting ? 'Running...' : 'Alternative DB Reconnect'}
+                </button>
+                <button
+                  className="btn-start-dev-services"
+                  onClick={handleStartDevServices}
+                  disabled={startingDevServices}
+                  title="Run npm run dev:services in background. Use after Alternative DB Reconnect when microservices had port conflicts."
+                >
+                  {startingDevServices ? 'Starting...' : 'Start Dev Services'}
+                </button>
               </div>
+              <p className="maintenance-health-hint">Alternative DB Reconnect: Docker/self-hosted only. Start Dev Services runs <code>npm run dev:services</code> in background (local dev only).</p>
+            </div>
+            <div className="maintenance-check-service">
+              <h3>Check Individual Service</h3>
+              <p className="settings-desc">Select a service and click Check to verify it is running.</p>
+              <div className="check-service-controls">
+                <select
+                  value={checkServiceKey}
+                  onChange={(e) => { setCheckServiceKey(e.target.value); setCheckServiceResult(null); }}
+                  disabled={checkServiceLoading}
+                  className="check-service-select"
+                  aria-label="Select service to check"
+                >
+                  <option value="">— Select service —</option>
+                  {serviceList.map((s) => (
+                    <option key={s.key} value={s.key}>{s.name}</option>
+                  ))}
+                </select>
+                <button
+                  className="btn-primary"
+                  onClick={handleCheckService}
+                  disabled={!checkServiceKey || checkServiceLoading}
+                >
+                  {checkServiceLoading ? 'Checking...' : 'Check'}
+                </button>
+              </div>
+              {checkServiceResult && (
+                <div className={`check-service-result ${checkServiceResult.status === 'online' ? 'online' : 'offline'}`}>
+                  <span>{checkServiceResult.status === 'online' ? '🟢' : '🔴'}</span>
+                  <span>{checkServiceResult.name}: {checkServiceResult.status}</span>
+                  {checkServiceResult.statusCode != null && <span> (HTTP {checkServiceResult.statusCode})</span>}
+                  {checkServiceResult.error && <span> — {checkServiceResult.error}</span>}
+                </div>
+              )}
             </div>
             <div className="maintenance-actions">
               <h3>Quick Actions</h3>
@@ -676,8 +1031,19 @@ const SettingsView: React.FC = () => {
               </div>
             </div>
             <div className="maintenance-migrations">
-              <h3>Database Migrations</h3>
-              <p className="settings-desc">Check which migrations are applied, or run all migrations (001–008). Safe to run multiple times (uses IF NOT EXISTS).</p>
+              <h3>Database Migrations &amp; Fixes</h3>
+              <p className="settings-desc">Check which migrations are applied, or run all migrations chronologically (001–013) to update the database to the latest. Safe to run multiple times (uses IF NOT EXISTS).</p>
+              <div className="migration-actions migration-fix-orphans-row">
+                <button
+                  className="btn-fix-orphans"
+                  onClick={handleFixOrphanFarmers}
+                  disabled={fixingOrphans || migrating}
+                  title="Create farmers rows for users with role farmer that don't have one. Use when farmers can't login."
+                >
+                  {fixingOrphans ? 'Fixing...' : 'Fix Orphan Farmers'}
+                </button>
+              </div>
+              <p className="maintenance-health-hint">If farmers can&apos;t login, click <strong>Fix Orphan Farmers</strong> to create missing farmers rows.</p>
               <div className="migration-actions">
                 <button
                   className="btn-secondary"
@@ -689,19 +1055,90 @@ const SettingsView: React.FC = () => {
                 <button
                   className="btn-primary"
                   onClick={() => setMigrationConfirmOpen(true)}
-                  disabled={migrating}
+                  disabled={migrating || singleMigrating}
+                  title="Run migrations 001–013 in chronological order to migrate database to latest"
                 >
-                  {migrating ? 'Running migrations...' : 'Run Full Database Migrations'}
+                  {migrating ? 'Migrating...' : 'Migrate Database to Latest'}
                 </button>
+                <div className="single-migration-controls">
+                  <select
+                    value={singleMigrationFile}
+                    onChange={(e) => { setSingleMigrationFile(e.target.value); setSingleMigrationResult(null); }}
+                    disabled={singleMigrating || migrating}
+                    className="single-migration-select"
+                    aria-label="Select migration to run"
+                  >
+                    <option value="">— Select migration —</option>
+                    {migrationListForSingle.map((f) => (
+                      <option key={f} value={f}>{f}</option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn-primary btn-single-migrate"
+                    onClick={handleRunSingleMigration}
+                    disabled={!singleMigrationFile || singleMigrating || migrating}
+                    title="Run a single migration file. Does not affect other migrations."
+                  >
+                    {singleMigrating ? 'Migrating...' : 'Single DB Migrate'}
+                  </button>
+                </div>
               </div>
+              {singleMigrating && (
+                <div className="single-migration-progress">
+                  <p className="single-migration-progress-text">Running <strong>{singleMigrationFile}</strong>... Please wait.</p>
+                  <div className="single-migration-progress-bar">
+                    <div className="single-migration-progress-fill" />
+                  </div>
+                </div>
+              )}
+              {singleMigrationResult && !singleMigrating && (
+                <div className={`single-migration-result ${singleMigrationResult.ok ? 'success' : 'error'}`}>
+                  <h4>{singleMigrationResult.ok ? '✓ Single migration completed' : '✗ Single migration failed'}</h4>
+                  <p className="single-migration-result-message">{singleMigrationResult.message}</p>
+                  {singleMigrationResult.reconnectTip && !singleMigrationResult.ok && (
+                    <p className="single-migration-result-tip">{singleMigrationResult.reconnectTip}</p>
+                  )}
+                  {singleMigrationResult.results && singleMigrationResult.results.length > 0 && (
+                    <ul className="single-migration-results-list" aria-label="Migration result details">
+                      {singleMigrationResult.results.map((r, i) => (
+                        <li key={i} className={`single-migration-result-item ${r.status}`}>
+                          <span>{r.status === 'ok' ? '✓' : '✗'}</span>
+                          <span className="single-migration-result-file">{r.file}</span>
+                          <span className="single-migration-result-detail">
+                            {r.status === 'ok' ? 'OK' : (r.message || 'Failed')}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               {migrating && (
                 <div className="migration-progress">
-                  <p className="migration-progress-text">Running migrations... Please wait.</p>
+                  <p className="migration-progress-text">Migrating database chronologically to latest... Please wait.</p>
                 </div>
               )}
               {migrationOverlayOpen && (
                 <div className="migration-overlay">
                   <div className="migration-overlay-content">
+                    {migrationList.length > 0 && (
+                      <div className="migration-preview-section">
+                        <h4 className="migration-preview-title">Migrations to apply (chronological)</h4>
+                        <div
+                          ref={migrationListScrollRef}
+                          className="migration-preview-list"
+                          role="list"
+                          aria-label="Migration files to apply"
+                        >
+                          {migrationList.map((file, i) => (
+                            <div key={i} className="migration-preview-item" role="listitem">
+                              <span className="migration-preview-num">{String(i + 1).padStart(2, '0')}</span>
+                              <span className="migration-preview-file">{file}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="migration-loading-bar">
                       <div className="migration-loading-fill" data-progress={migrationProgress} style={{ width: `${migrationProgress}%` }} />
                     </div>
@@ -738,11 +1175,11 @@ const SettingsView: React.FC = () => {
             {migrationConfirmOpen && (
               <div className="admin-modal-overlay" onClick={() => setMigrationConfirmOpen(false)}>
                 <div className="admin-modal migration-confirm-modal" onClick={(e) => e.stopPropagation()}>
-                  <h3>Run Full Database Migrations</h3>
-                  <p>This will run all migrations (001–008) in order. Safe to run multiple times. Continue?</p>
+                  <h3>Migrate Database to Latest</h3>
+                  <p>This will run all migrations chronologically (001–012) to update your database to the latest schema. Safe to run multiple times. Continue?</p>
                   <div className="modal-actions">
                     <button className="btn-secondary" onClick={() => setMigrationConfirmOpen(false)}>Cancel</button>
-                    <button className="btn-primary" onClick={handleRunMigrations}>Run Migrations</button>
+                    <button className="btn-primary" onClick={handleRunMigrations}>Migrate to Latest</button>
                   </div>
                 </div>
               </div>
@@ -755,14 +1192,24 @@ const SettingsView: React.FC = () => {
                   Project dir: <code>{rebuildConfig.projectDir}</code>
                 </p>
               )}
-              <button
-                className="btn-rebuild-admin"
-                onClick={handleRebuildAdminService}
-                disabled={rebuilding}
-                title="Runs: docker compose build --no-cache admin-service && docker compose up -d admin-service"
-              >
-                {rebuilding ? 'Rebuilding...' : 'Rebuild Admin Service'}
-              </button>
+              <div className="rebuild-admin-buttons">
+                <button
+                  className="btn-rebuild-admin"
+                  onClick={handleRebuildAdminService}
+                  disabled={rebuilding}
+                  title="Runs: docker compose build --no-cache admin-service && docker compose up -d admin-service"
+                >
+                  {rebuilding ? 'Rebuilding...' : 'Rebuild Admin Service'}
+                </button>
+                <button
+                  className="btn-manual-rebuild"
+                  onClick={handleRunManualRebuild}
+                  disabled={rebuilding}
+                  title="Runs procedurally: cd to project dir, docker compose build --no-cache admin-service, docker compose up -d admin-service. Use when rebuild is not configured."
+                >
+                  {rebuilding ? 'Rebuilding...' : 'Run Manual Rebuild'}
+                </button>
+              </div>
             </div>
             <div className="maintenance-rebuild maintenance-rebuild-other">
               <h3>Rebuild Other Service</h3>
@@ -789,12 +1236,22 @@ const SettingsView: React.FC = () => {
                 >
                   {rebuilding ? 'Rebuilding...' : 'Rebuild & Restart'}
                 </button>
+                <button
+                  className="btn-manual-rebuild"
+                  onClick={handleRunManualRebuild}
+                  disabled={rebuilding}
+                  title="Runs procedurally: cd to project dir, docker compose build --no-cache admin-service, docker compose up -d admin-service"
+                >
+                  {rebuilding ? 'Rebuilding...' : 'Run Manual Rebuild'}
+                </button>
               </div>
             </div>
             <div className="maintenance-tips">
               <h3>Troubleshooting Tips</h3>
               <ul>
-                <li><strong>Database connection failed:</strong> Check PostgreSQL is running and DATABASE_URL is correct.</li>
+                <li><strong>Run commands without external terminal:</strong> Use the <button type="button" className="link-btn" onClick={handleMaintenanceTerminalLink}>Terminal</button> tab to run bash/PowerShell commands from the UI.</li>
+                <li><strong>Farmer can&apos;t login / farmer table missing data:</strong> Click <strong>Fix Orphan Farmers</strong> to create farmers rows for users with role farmer that don&apos;t have one.</li>
+                <li><strong>Database connection failed:</strong> Click <strong>Alternative DB Reconnect</strong> to run the full procedure (check-db, docker stop postgres, docker-compose up -d). If port conflicts occur, it will stop containers and retry. For local dev, run <code>npm run dev:services</code> after.</li>
                 <li><strong>API Gateway timeout:</strong> Ensure all microservices (auth, farmer, admin, system) are running.</li>
                 <li><strong>Sensor/Robot not responding:</strong> Verify device is initialized and configured in admin Sensors/Robots pages.</li>
                 <li><strong>Farmer app cannot connect:</strong> Confirm REACT_APP_API_URL points to API Gateway (e.g. http://localhost:5001).</li>
@@ -802,6 +1259,51 @@ const SettingsView: React.FC = () => {
                 <li><strong>Missing tables / Run migration X first:</strong> Click &quot;Run Full Database Migrations&quot; above, or run migrations manually via psql.</li>
                 <li><strong>Run migrations failed / DB disconnected after migration:</strong> Click &quot;Force Reconnect&quot; to refresh the connection, then run migrations again.</li>
               </ul>
+            </div>
+          </div>
+        )}
+
+        {/* Terminal - run bash/powershell commands for troubleshooting */}
+        {activeTab === 'terminal' && (
+          <div className="settings-panel terminal-panel">
+            <h2>Terminal</h2>
+            <p className="settings-desc">Run shell commands for troubleshooting and maintenance. Commands run from project root. Windows: PowerShell. Linux/Mac: bash. Disabled on Render/Railway.</p>
+            <div className="terminal-container">
+              <div className="terminal-output" ref={terminalOutputRef}>
+                {terminalOutput.length === 0 ? (
+                  <div className="terminal-placeholder">Enter a command below and press Run or Enter. Do not type the $ prompt. Example: npm run check-db</div>
+                ) : (
+                  terminalOutput.map((line, i) => (
+                    <div key={i} className={`terminal-line ${line.startsWith('$ ') ? 'terminal-prompt' : line.startsWith('[stderr]') ? 'terminal-stderr' : ''}`}>
+                      {line}
+                    </div>
+                  ))
+                )}
+              </div>
+              <form className="terminal-input-row" onSubmit={handleRunTerminalCommand}>
+                <span className="terminal-prompt-char">$</span>
+                <input
+                  type="text"
+                  value={terminalCommand}
+                  onChange={(e) => setTerminalCommand(e.target.value)}
+                  placeholder="Enter command..."
+                  className="terminal-input"
+                  disabled={terminalRunning}
+                  aria-label="Terminal command"
+                  autoComplete="off"
+                />
+                <button type="submit" className="btn-primary terminal-run-btn" disabled={terminalRunning || !terminalCommand.trim()}>
+                  {terminalRunning ? 'Running...' : 'Run'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setTerminalOutput([])}
+                  title="Clear output"
+                >
+                  Clear
+                </button>
+              </form>
             </div>
           </div>
         )}
@@ -873,13 +1375,12 @@ const SettingsView: React.FC = () => {
       <div className="admin-footer">
         <span onClick={() => navigate('/')}>🏠 Dashboard</span>
         <span onClick={() => navigate('/farmers')}>👥 Farmers</span>
+        <span onClick={() => navigate('/farms')}>🌾 Farms</span>
         <span onClick={() => navigate('/crops')}>🌱 Crops</span>
         <span onClick={() => navigate('/analytics')}>📊 Analytics</span>
         <span onClick={() => navigate('/sensors')}>📡 Sensors</span>
         <span onClick={() => navigate('/robots')}>🤖 Robots</span>
-        <span onClick={() => navigate('/profile')}>👤 Profile</span>
         <span className="active">⚙️ Settings</span>
-        <span onClick={() => navigate('/requests')}>📋 Requests</span>
         <span onClick={() => navigate('/users')}>👤 Admin Users</span>
       </div>
     </div>

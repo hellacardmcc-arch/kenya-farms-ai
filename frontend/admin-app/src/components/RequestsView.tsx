@@ -7,6 +7,8 @@ import {
   rejectAccessRequest,
   type AccessRequest
 } from '../api/adminApi';
+import { AreaDisplay } from './AreaDisplay';
+import { AreaUnitSelector } from './AreaUnitSelector';
 import './AdminPage.css';
 import './RequestsView.css';
 
@@ -101,7 +103,7 @@ const RequestsView: React.FC = () => {
           <div className="admin-header-actions">
             <button onClick={() => navigate('/')}>Dashboard</button>
             <button onClick={() => navigate('/users')}>👥 Admin Users</button>
-            <button onClick={() => navigate('/profile')}>👤 Profile</button>
+            <button onClick={() => navigate('/settings')}>⚙️ Settings</button>
             <button onClick={() => { logout(); navigate('/login'); }}>Logout</button>
           </div>
         </div>
@@ -109,6 +111,7 @@ const RequestsView: React.FC = () => {
 
       <div className="admin-page-content">
         <div className="admin-toolbar requests-toolbar">
+          <AreaUnitSelector />
           <div className="requests-filters">
             <button
               className={`filter-btn ${statusFilter === 'pending' ? 'active' : ''}`}
@@ -184,6 +187,14 @@ const RequestsView: React.FC = () => {
           <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
             <h3>✅ Approve Request</h3>
             <p><strong>{selected.name || selected.email}</strong> — {selected.requested_role}</p>
+            {selected.requested_role === 'farmer' && (selected.farm_name || selected.farm_location) && (
+              <div className="admin-form-field" style={{ marginBottom: 12 }}>
+                <strong>Farm details:</strong> {selected.farm_name || '—'}
+                {selected.farm_size != null && <> • <AreaDisplay hectares={selected.farm_size} /></>}
+                {selected.farm_location && ` • ${selected.farm_location}`}
+                {(selected.farm_latitude != null || selected.farm_longitude != null) && ` • ${selected.farm_latitude ?? '—'}, ${selected.farm_longitude ?? '—'}`}
+              </div>
+            )}
             <form onSubmit={handleApprove}>
               <div className="admin-form-field">
                 <label>Feedback message (optional, included in approval email)</label>
@@ -239,11 +250,11 @@ const RequestsView: React.FC = () => {
       <div className="admin-footer">
         <span onClick={() => navigate('/')}>🏠 Dashboard</span>
         <span onClick={() => navigate('/farmers')}>👥 Farmers</span>
+        <span onClick={() => navigate('/farms')}>🌾 Farms</span>
         <span onClick={() => navigate('/crops')}>🌱 Crops</span>
         <span onClick={() => navigate('/analytics')}>📊 Analytics</span>
         <span onClick={() => navigate('/sensors')}>📡 Sensors</span>
         <span onClick={() => navigate('/robots')}>🤖 Robots</span>
-        <span onClick={() => navigate('/profile')}>👤 Profile</span>
         <span onClick={() => navigate('/settings')}>⚙️ Settings</span>
         <span onClick={() => navigate('/users')}>👤 Admin Users</span>
         <span className="active">📋 Requests</span>

@@ -315,7 +315,8 @@ Never commit `JWT_SECRET`, `DATABASE_URL`, or passwords. Use Render's Environmen
    - Ensure `DATABASE_URL` is set in each service (Auth, Farmer, Admin, System)
    - Services and database must be in the **same region**
    - Free tier DB sleeps after inactivity; first request may take 30–60 sec
-   - In Admin App → Settings → Maintenance, click **Force Reconnect** to refresh the connection
+   - In Admin App → Settings → Maintenance, click **Force Reconnect DB** to refresh the connection
+   - **Alternative DB Reconnect** is for Docker/self-hosted only; on Render use **Force Reconnect DB**
 3. **CORS errors**: Add frontend URLs to API Gateway CORS config.
 4. **Migrations fail**: Ensure `init.sql` runs first; check user has CREATE privileges.
 5. **SSL/TLS required**: The app auto-enables SSL for Render (`render.com` in DATABASE_URL).

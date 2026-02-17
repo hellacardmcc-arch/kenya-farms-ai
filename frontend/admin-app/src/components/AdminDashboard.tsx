@@ -77,7 +77,7 @@ const AdminDashboard = (): JSX.Element => {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <button onClick={() => navigate('/users')} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer' }}>👥 Admin Users</button>
-            <button onClick={() => navigate('/profile')} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer' }}>👤 Profile</button>
+            <button onClick={() => navigate('/settings')} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer' }}>⚙️ Settings</button>
             <button onClick={() => { logout(); navigate('/login'); }} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer' }}>Logout</button>
           </div>
         </div>
@@ -277,6 +277,9 @@ const AdminDashboard = (): JSX.Element => {
             <button onClick={() => navigate('/farmers')} style={{ padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer' }}>
               <div style={{ fontSize: '24px', marginBottom: '8px' }}>👥</div><div>Manage Farmers</div>
             </button>
+            <button onClick={() => navigate('/farms')} style={{ padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer' }}>
+              <div style={{ fontSize: '24px', marginBottom: '8px' }}>🌾</div><div>View Farms</div>
+            </button>
             <button onClick={() => navigate('/crops')} style={{ padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer' }}>
               <div style={{ fontSize: '24px', marginBottom: '8px' }}>🌱</div><div>Manage Crops</div>
             </button>
@@ -289,9 +292,6 @@ const AdminDashboard = (): JSX.Element => {
             <button onClick={() => navigate('/robots')} style={{ padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer' }}>
               <div style={{ fontSize: '24px', marginBottom: '8px' }}>🤖</div><div>Robots</div>
             </button>
-            <button onClick={() => navigate('/profile')} style={{ padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer' }}>
-              <div style={{ fontSize: '24px', marginBottom: '8px' }}>👤</div><div>Profile</div>
-            </button>
             <button onClick={() => navigate('/settings')} style={{ padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer' }}>
               <div style={{ fontSize: '24px', marginBottom: '8px' }}>⚙️</div><div>Settings</div>
             </button>
@@ -302,11 +302,11 @@ const AdminDashboard = (): JSX.Element => {
       <div style={{ background: 'white', borderTop: '1px solid #e2e8f0', padding: '12px 20px', display: 'flex', gap: '24px', marginTop: '20px' }}>
         <span style={{ color: '#3b82f6', fontWeight: '600', cursor: 'pointer' }} onClick={() => navigate('/')}>🏠 Dashboard</span>
         <span style={{ color: '#64748b', cursor: 'pointer' }} onClick={() => navigate('/farmers')}>👥 Farmers</span>
+        <span style={{ color: '#64748b', cursor: 'pointer' }} onClick={() => navigate('/farms')}>🌾 Farms</span>
         <span style={{ color: '#64748b', cursor: 'pointer' }} onClick={() => navigate('/crops')}>🌱 Crops</span>
         <span style={{ color: '#64748b', cursor: 'pointer' }} onClick={() => navigate('/analytics')}>📊 Analytics</span>
         <span style={{ color: '#64748b', cursor: 'pointer' }} onClick={() => navigate('/sensors')}>📡 Sensors</span>
         <span style={{ color: '#64748b', cursor: 'pointer' }} onClick={() => navigate('/robots')}>🤖 Robots</span>
-        <span style={{ color: '#64748b', cursor: 'pointer' }} onClick={() => navigate('/profile')}>👤 Profile</span>
         <span style={{ color: '#64748b', cursor: 'pointer' }} onClick={() => navigate('/settings')}>⚙️ Settings</span>
       </div>
     </div>

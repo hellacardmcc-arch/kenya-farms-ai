@@ -12,6 +12,7 @@ services:
       POSTGRES_USER: kfiot
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kfiot_secret}
     volumes:
+      - kenya_farm_postgres_data:/var/lib/postgresql/data
       - ./databases/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
@@ -76,6 +77,7 @@ services:
     ports:
       - "4002:4002"
     environment:
+      PORT: 4002
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
       DATABASE_URL: postgresql://kfiot:${POSTGRES_PASSWORD:-kfiot_secret}@postgres:5432/kenya_farm_iot
     depends_on:
@@ -141,3 +143,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+volumes:
+  kenya_farm_postgres_data:

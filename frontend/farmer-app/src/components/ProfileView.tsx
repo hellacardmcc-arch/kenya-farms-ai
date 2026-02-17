@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import { getMe, updateProfile, changePassword } from '../api/authApi';
 import LanguageSelector from './LanguageSelector';
+import FarmSelectorBar from './FarmSelectorBar';
 import './ProfileView.css';
 
 const ProfileView: React.FC = () => {
   const { user, token, logout, updateUser } = useAuth();
   const navigate = useNavigate();
-  const [language, setLanguage] = useState<'sw' | 'en'>('sw');
+  const { language, setLanguage } = useLanguage();
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState((user as { phone?: string })?.phone || '');
   const [loading, setLoading] = useState(true);
@@ -139,6 +141,8 @@ const ProfileView: React.FC = () => {
           </button>
         </div>
       </header>
+
+      <FarmSelectorBar />
 
       <div className="profile-content">
         <button onClick={() => navigate('/')} className="back-btn">

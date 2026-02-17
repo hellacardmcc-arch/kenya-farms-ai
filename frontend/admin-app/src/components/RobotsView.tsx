@@ -141,7 +141,7 @@ const RobotsView: React.FC = () => {
           <div className="admin-header-actions">
             <button onClick={() => navigate('/')}>Dashboard</button>
             <button onClick={() => navigate('/users')}>👥 Admin Users</button>
-            <button onClick={() => navigate('/profile')}>👤 Profile</button>
+            <button onClick={() => navigate('/settings')}>⚙️ Settings</button>
             <button onClick={() => { logout(); navigate('/login'); }}>Logout</button>
           </div>
         </div>
@@ -309,13 +309,12 @@ const RobotsView: React.FC = () => {
       <div className="admin-footer">
         <span onClick={() => navigate('/')}>🏠 Dashboard</span>
         <span onClick={() => navigate('/farmers')}>👥 Farmers</span>
+        <span onClick={() => navigate('/farms')}>🌾 Farms</span>
         <span onClick={() => navigate('/crops')}>🌱 Crops</span>
         <span onClick={() => navigate('/analytics')}>📊 Analytics</span>
         <span onClick={() => navigate('/sensors')}>📡 Sensors</span>
         <span className="active">🤖 Robots</span>
-        <span onClick={() => navigate('/profile')}>👤 Profile</span>
         <span onClick={() => navigate('/settings')}>⚙️ Settings</span>
-        <span onClick={() => navigate('/requests')}>📋 Requests</span>
         <span onClick={() => navigate('/users')}>👤 Admin Users</span>
       </div>
     </div>

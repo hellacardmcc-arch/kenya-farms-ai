@@ -1,0 +1,289 @@
+.farms-view {
+  padding-bottom: 80px;
+}
+
+.farms-content {
+  padding: 16px;
+}
+
+.farms-title {
+  font-size: 1rem;
+  color: #64748b;
+  margin-bottom: 16px;
+}
+
+.add-farm-btn-main {
+  width: 100%;
+  padding: 14px 16px;
+  background: #166534;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 20px;
+}
+
+.add-farm-btn-main:hover {
+  background: #15803d;
+}
+
+.farms-loading {
+  text-align: center;
+  padding: 24px;
+  color: #64748b;
+}
+
+.no-farms-msg {
+  color: #64748b;
+  font-size: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
+.farms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.farm-card {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.farm-card.expanded {
+  border-color: #22c55e;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.15);
+}
+
+.farm-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  cursor: pointer;
+  gap: 12px;
+}
+
+.farm-card-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.farm-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: #1e293b;
+}
+
+.farm-area {
+  display: block;
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.farm-crops-badge {
+  background: #dcfce7;
+  color: #166534;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.expand-icon {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.farm-card-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+
+.btn-edit {
+  flex: 1;
+  padding: 8px 12px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btn-edit:hover {
+  background: #2563eb;
+}
+
+.btn-remove {
+  flex: 1;
+  padding: 8px 12px;
+  background: #fee2e2;
+  color: #dc2626;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btn-remove:hover:not(:disabled) {
+  background: #fecaca;
+}
+
+.btn-remove:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.farm-card-detail {
+  padding: 0 16px 16px;
+  border-top: 1px solid #f1f5f9;
+  margin-top: -4px;
+  padding-top: 12px;
+}
+
+.farm-detail-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.farm-detail-row .label {
+  color: #64748b;
+  min-width: 100px;
+}
+
+.farm-crops-list {
+  margin: 12px 0;
+}
+
+.farm-crops-list .label {
+  display: block;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.farm-crops-list ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.farm-crops-list li {
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.btn-go-crops {
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: #166534;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.btn-go-crops:hover {
+  background: #15803d;
+}
+
+.farm-form-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.farm-form-modal {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 400px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.farm-form-modal h3 {
+  margin: 0 0 20px 0;
+  font-size: 1.2rem;
+  color: #1e293b;
+}
+
+.farm-form-modal .add-farm-form .form-row {
+  margin-bottom: 12px;
+}
+
+.farm-form-modal .add-farm-form .form-row label {
+  display: block;
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.farm-form-modal .add-farm-form input[type="text"],
+.farm-form-modal .add-farm-form input[type="number"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.farm-form-modal .form-row-coords .coords-inputs {
+  display: flex;
+  gap: 12px;
+}
+
+.farm-form-modal .form-row-coords .coords-inputs input {
+  flex: 1;
+}
+
+.farm-form-modal .form-hint {
+  font-size: 12px;
+  color: #64748b;
+  margin: -4px 0 12px 0;
+}
+
+.farm-form-modal .form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.farm-form-modal .form-actions button {
+  flex: 1;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  background: white;
+}
+
+.farm-form-modal .form-actions button[type="submit"] {
+  background: #166534;
+  color: white;
+  border-color: #166534;
+}
+
+.farm-form-modal .form-actions button[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

@@ -2,9 +2,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import { getFarmerDashboard, type Crop, type WateringTask, type Alert } from '../api/farmerApi';
 import { getSensors, type Sensor } from '../api/systemApi';
 import LanguageSelector from './LanguageSelector';
+import { AreaDisplay } from './AreaDisplay';
+import { AreaUnitSelector } from './AreaUnitSelector';
+import FarmSelectorBar from './FarmSelectorBar';
+import ManageFarmsSection from './ManageFarmsSection';
 import './Dashboard.css';
 
 const SWAHILI_NAMES: Record<string, string> = { Maize: 'Mahindi', Tomatoes: 'Nyanya', Kale: 'Sukuma Wiki', Beans: 'Maharage' };
@@ -33,7 +38,7 @@ const Dashboard = (): JSX.Element => {
   const [tasks, setTasks] = useState<Array<{ id: string; crop: string; cropSwahili: string; amount: number; time: string; completed: boolean; field: string }>>([]);
   const [crops, setCrops] = useState<Array<{ id: string; name: string; swahili: string; planted: string; area: number; harvest: string; daysLeft: number; status: string; completedTasks: number; totalTasks: number }>>([]);
   const [alerts, setAlerts] = useState<Array<{ id: string; severity: string; message: string; time: string }>>([]);
-  const [language, setLanguage] = useState<'sw' | 'en'>('sw');
+  const { language, setLanguage } = useLanguage();
 
   const deriveReadings = (sensors: Sensor[]) => {
     const byType: Record<string, Sensor[]> = {};
@@ -73,7 +78,7 @@ const Dashboard = (): JSX.Element => {
         setFarmer({
           name: data.farmer.name || user?.name || 'Farmer',
           phone: data.farmer.phone || '',
-          county: data.farmer.region || 'Nairobi',
+          county: data.farmer.location || 'Nairobi',
           farmSize: data.farms.reduce((s, f) => s + (Number(f.area_hectares) || 0), 0)
         });
         setTasks(data.tasks.map((t: WateringTask) => ({
@@ -164,9 +169,6 @@ const Dashboard = (): JSX.Element => {
     alert(language === 'sw' ? 'Kazi imekamilika!' : 'Task completed!');
   };
 
-  const handleLanguageChange = (lang: 'sw' | 'en'): void => {
-    setLanguage(lang);
-  };
 
   if (loading) {
     return (
@@ -186,7 +188,8 @@ const Dashboard = (): JSX.Element => {
           </p>
         </div>
         <div className="header-actions">
-          <LanguageSelector language={language} onLanguageChange={handleLanguageChange} />
+          <AreaUnitSelector />
+          <LanguageSelector language={language} onLanguageChange={setLanguage} />
           <button
             onClick={() => { logout(); navigate('/login'); }}
             style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}
@@ -195,6 +198,8 @@ const Dashboard = (): JSX.Element => {
           </button>
         </div>
       </header>
+
+      <FarmSelectorBar />
 
       <div className="weather-widget">
         <div>
@@ -274,7 +279,7 @@ const Dashboard = (): JSX.Element => {
             </div>
             <div className="crop-details">
               <div>📅 {currentLang.planted}: {new Date(crop.planted).toLocaleDateString()}</div>
-              <div>📍 {currentLang.area}: {crop.area} {language === 'sw' ? 'eka' : 'acres'}</div>
+              <div>📍 {currentLang.area}: <AreaDisplay hectares={crop.area} /></div>
               <div>🌾 {currentLang.harvest}: {new Date(crop.harvest).toLocaleDateString()}</div>
               <div>⏳ {crop.daysLeft} {currentLang.daysLeft}</div>
             </div>
@@ -321,7 +326,10 @@ const Dashboard = (): JSX.Element => {
         ))}
       </div>
 
+      <ManageFarmsSection />
+
       <div className="quick-actions">
+        <button type="button" className="quick-action-btn" onClick={() => navigate('/farms')}><i className="fas fa-tractor"></i><span>{language === 'sw' ? 'Mashamba' : 'Farms'}</span></button>
         <button type="button" className="quick-action-btn" onClick={() => navigate('/crops')}><i className="fas fa-seedling"></i><span>{currentLang.myCrops}</span></button>
         <button type="button" className="quick-action-btn" onClick={() => navigate('/sensors')}><i className="fas fa-tower-broadcast"></i><span>{language === 'sw' ? 'Vipima' : 'Sensors'}</span></button>
         <button type="button" className="quick-action-btn" onClick={() => navigate('/robots')}><i className="fas fa-robot"></i><span>{language === 'sw' ? 'Roboti' : 'Robots'}</span></button>
@@ -336,6 +344,7 @@ const Dashboard = (): JSX.Element => {
         <div className="nav-item" onClick={() => navigate('/sensors')}><i className="fas fa-tower-broadcast"></i><span>{language === 'sw' ? 'Vipima' : 'Sensors'}</span></div>
         <div className="nav-item" onClick={() => navigate('/robots')}><i className="fas fa-robot"></i><span>{language === 'sw' ? 'Roboti' : 'Robots'}</span></div>
         <div className="nav-item" onClick={() => navigate('/crops')}><i className="fas fa-seedling"></i><span>{currentLang.crops}</span></div>
+        <div className="nav-item" onClick={() => navigate('/farms')}><i className="fas fa-tractor"></i><span>{language === 'sw' ? 'Mashamba' : 'Farms'}</span></div>
         <div className="nav-item"><i className="fas fa-tint"></i><span>{currentLang.water}</span></div>
         <div className="nav-item"><i className="fas fa-chart-line"></i><span>{currentLang.stats}</span></div>
         <div className="nav-item" onClick={() => navigate('/profile')}><i className="fas fa-user"></i><span>{currentLang.profile}</span></div>

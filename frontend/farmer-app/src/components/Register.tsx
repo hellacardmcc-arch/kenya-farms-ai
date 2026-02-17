@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { AreaInput } from './AreaInput';
 import './Auth.css';
 
 const Register: React.FC = () => {
@@ -10,7 +11,10 @@ const Register: React.FC = () => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [farmName, setFarmName] = useState('');
-  const [farmSize, setFarmSize] = useState('');
+  const [farmSizeHa, setFarmSizeHa] = useState<number | null>(null);
+  const [farmLocation, setFarmLocation] = useState('');
+  const [farmLatitude, setFarmLatitude] = useState('');
+  const [farmLongitude, setFarmLongitude] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const { requestAccess, loading } = useAuth();
@@ -24,15 +28,31 @@ const Register: React.FC = () => {
       return;
     }
     try {
-      await requestAccess(email, password, name, farmName.trim(), phone || undefined, farmSize ? parseFloat(farmSize) : undefined);
+      await requestAccess(
+        email, password, name, farmName.trim(),
+        phone || undefined,
+        farmSizeHa ?? undefined,
+        farmLocation.trim() || undefined,
+        farmLatitude !== '' && !isNaN(parseFloat(farmLatitude)) ? parseFloat(farmLatitude) : undefined,
+        farmLongitude !== '' && !isNaN(parseFloat(farmLongitude)) ? parseFloat(farmLongitude) : undefined
+      );
       setSuccess(true);
+      setName('');
+      setEmail('');
+      setPassword('');
+      setPhone('');
+      setFarmName('');
+      setFarmSizeHa(null);
+      setFarmLocation('');
+      setFarmLatitude('');
+      setFarmLongitude('');
     } catch (err: unknown) {
       let msg = 'Request failed. Please try again.';
       if (err instanceof Error && err.message && err.message !== 'Request failed') {
         msg = err.message;
       } else if (axios.isAxiosError(err)) {
         const d = err.response?.data;
-        const backendMsg = d && typeof d === 'object' ? ((d as { error?: string; message?: string }).error || (d as { error?: string; message?: string }).message) : null;
+        const backendMsg = d && typeof d === 'object' ? ((d as { message?: string; error?: string }).message || (d as { message?: string; error?: string }).error) : null;
         if (backendMsg) msg = backendMsg;
         else if (err.code === 'ERR_NETWORK') msg = 'Cannot reach server. Start API Gateway (5001) and Auth service (5002), or check REACT_APP_API_URL.';
         else if (err.response?.status === 502 || err.response?.status === 503) msg = 'Backend unavailable. Ensure Auth service and PostgreSQL are running.';
@@ -54,6 +74,9 @@ const Register: React.FC = () => {
           {success && (
             <div className="auth-success">
               Request submitted! You will receive an email once an admin approves it.
+              <button type="button" className="auth-register-another" onClick={() => setSuccess(false)}>
+                Register another farmer
+              </button>
             </div>
           )}
           {error && <div className="auth-error">{error}</div>}
@@ -87,15 +110,38 @@ const Register: React.FC = () => {
             onChange={(e) => setFarmName(e.target.value)}
             className="auth-input"
           />
+          <div className="auth-area-wrap">
+            <AreaInput
+              label="Farm Size (optional)"
+              value={farmSizeHa}
+              onChange={setFarmSizeHa}
+              placeholder="e.g. 2.5"
+            />
+          </div>
           <input
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Farm Size (hectares, optional)"
-            value={farmSize}
-            onChange={(e) => setFarmSize(e.target.value)}
+            type="text"
+            placeholder="Farm Location (optional)"
+            value={farmLocation}
+            onChange={(e) => setFarmLocation(e.target.value)}
             className="auth-input"
           />
+          <input
+            type="number"
+            step="any"
+            placeholder="Farm Latitude (optional)"
+            value={farmLatitude}
+            onChange={(e) => setFarmLatitude(e.target.value)}
+            className="auth-input"
+          />
+          <input
+            type="number"
+            step="any"
+            placeholder="Farm Longitude (optional)"
+            value={farmLongitude}
+            onChange={(e) => setFarmLongitude(e.target.value)}
+            className="auth-input"
+          />
+          <p className="auth-hint">Unique farm code will be auto-generated.</p>
           <input
             type="password"
             placeholder="Password"
@@ -104,7 +150,7 @@ const Register: React.FC = () => {
             className="auth-input"
             autoComplete="new-password"
           />
-          <button type="submit" className="auth-button" disabled={loading || success}>
+          <button type="submit" className="auth-button" disabled={loading}>
             {loading ? 'Submitting...' : success ? 'Submitted' : 'Request Farmer Access'}
           </button>
         </form>

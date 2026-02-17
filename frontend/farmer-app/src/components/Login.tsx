@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useFarm } from '../context/FarmContext';
 import './Auth.css';
 
 const Login: React.FC = () => {
@@ -9,6 +10,7 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const { login, loading } = useAuth();
+  const { refreshFarms } = useFarm();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -19,7 +21,10 @@ const Login: React.FC = () => {
       return;
     }
     try {
-      await login(email, password);
+      const token = await login(email, password);
+      if (token) {
+        await refreshFarms(token);
+      }
       navigate('/');
     } catch (err: unknown) {
       const msg = axios.isAxiosError(err) && err.response?.data?.error ? err.response.data.error : 'Login failed. Please try again.';

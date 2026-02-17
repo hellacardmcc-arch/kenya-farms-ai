@@ -6,22 +6,39 @@ function headers(token: string) {
   return { headers: { Authorization: `Bearer ${token}` } };
 }
 
-// Farmers
+// Farmers - farmer_id binds to farms.farmer_id (one farmer, many farms)
+export interface FarmerFarm {
+  id: string;
+  name?: string;
+  location?: string;
+  area_hectares?: number;
+  unique_code?: string;
+  latitude?: number;
+  longitude?: number;
+  created_at?: string;
+}
+
 export interface Farmer {
   id: string;
   name?: string;
   phone?: string;
-  region?: string;
+  location?: string;
   email?: string;
   user_id?: string;
   role?: string;
   created_at?: string;
   deleted_at?: string;
+  farms_count?: number;
+  farms?: FarmerFarm[];
 }
 
-export async function getFarmers(token: string, includeDeleted = false): Promise<Farmer[]> {
+export async function getFarmers(token: string, includeDeleted = false, withFarms = false): Promise<Farmer[]> {
+  const params = new URLSearchParams();
+  if (includeDeleted) params.set('deleted', 'true');
+  if (withFarms) params.set('farms', 'true');
+  const qs = params.toString();
   const res = await axios.get<{ farmers: Farmer[] }>(
-    `${API_URL}/api/admin/farmers${includeDeleted ? '?deleted=true' : ''}`,
+    `${API_URL}/api/admin/farmers${qs ? '?' + qs : ''}`,
     headers(token)
   );
   return res.data.farmers;
@@ -34,7 +51,7 @@ export async function getFarmer(token: string, id: string): Promise<Farmer> {
 
 export async function registerFarmer(
   token: string,
-  data: { email: string; password: string; name?: string; phone?: string; region?: string; farm_name: string; farm_size?: number | string }
+  data: { email: string; password: string; name?: string; phone?: string; location?: string; farm_name: string; farm_size?: number | string; farm_location?: string; farm_latitude?: number; farm_longitude?: number }
 ): Promise<{ user: unknown; farmer: Farmer }> {
   const res = await axios.post(`${API_URL}/api/admin/farmers/register`, data, headers(token));
   return res.data;
@@ -43,7 +60,7 @@ export async function registerFarmer(
 export async function updateFarmer(
   token: string,
   id: string,
-  data: { name?: string; phone?: string; region?: string }
+  data: { name?: string; phone?: string; location?: string }
 ): Promise<void> {
   await axios.put(`${API_URL}/api/admin/farmers/${id}`, data, headers(token));
 }
@@ -100,7 +117,17 @@ export async function restoreCrop(token: string, id: string): Promise<void> {
   await axios.post(`${API_URL}/api/admin/crops/${id}/restore`, {}, headers(token));
 }
 
-// Farms (for dropdowns)
+// Farms (for dropdowns and Farms page)
+export interface FarmCrop {
+  id: string;
+  name: string;
+  swahili_name?: string;
+  status?: string;
+  planted_date?: string;
+  harvest_date?: string;
+  area_hectares?: number;
+}
+
 export interface Farm {
   id: string;
   name?: string;
@@ -108,11 +135,31 @@ export interface Farm {
   area_hectares?: number;
   farmer_id?: string;
   farmer_name?: string;
+  farmer_phone?: string;
+  unique_code?: string;
+  latitude?: number;
+  longitude?: number;
+  created_at?: string;
+  sensor_count?: number;
+  robot_count?: number;
+  crops_count?: number;
+  crops?: FarmCrop[];
 }
 
-export async function getFarms(token: string): Promise<Farm[]> {
-  const res = await axios.get<{ farms: Farm[] }>(`${API_URL}/api/admin/farms`, headers(token));
+export async function getFarms(token: string, detailed = false): Promise<Farm[]> {
+  const res = await axios.get<{ farms: Farm[] }>(
+    `${API_URL}/api/admin/farms${detailed ? '?detailed=true' : ''}`,
+    headers(token)
+  );
   return res.data.farms;
+}
+
+export async function createFarm(
+  token: string,
+  data: { farmer_id: string; name: string; location?: string; area_hectares?: number; latitude?: number; longitude?: number }
+): Promise<{ id: string; unique_code?: string; latitude?: number; longitude?: number }> {
+  const res = await axios.post(`${API_URL}/api/admin/farms`, data, headers(token));
+  return res.data;
 }
 
 // Analytics
@@ -330,6 +377,42 @@ export async function requestReconnectDb(token: string): Promise<{ ok: boolean; 
   return res.data;
 }
 
+export interface AlternativeDbReconnectResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+  steps?: { step: string; ok: boolean; output?: string }[];
+  dbConnected?: boolean;
+}
+
+export async function requestAlternativeDbReconnect(token: string): Promise<AlternativeDbReconnectResult> {
+  const res = await axios.post<AlternativeDbReconnectResult>(`${API_URL}/api/admin/settings/alternative-db-reconnect`, {}, headers(token));
+  return res.data;
+}
+
+export async function requestStartDevServices(token: string): Promise<{ ok: boolean; message?: string; error?: string }> {
+  const res = await axios.post<{ ok: boolean; message?: string; error?: string }>(`${API_URL}/api/admin/settings/start-dev-services`, {}, headers(token));
+  return res.data;
+}
+
+export interface RunCommandResult {
+  ok: boolean;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  error?: string;
+}
+
+export async function requestRunCommand(token: string, command: string): Promise<RunCommandResult> {
+  const res = await axios.post<RunCommandResult>(`${API_URL}/api/admin/settings/run-command`, { command }, headers(token));
+  return res.data;
+}
+
+export async function requestFixOrphanFarmers(token: string): Promise<{ ok: boolean; message?: string; created?: number; farmers?: { id: string; user_id: string; name?: string }[]; error?: string }> {
+  const res = await axios.post(`${API_URL}/api/admin/settings/fix-orphan-farmers`, {}, headers(token));
+  return res.data;
+}
+
 export interface SystemHealthDetails {
   cpu: { percent: number; loadAvg: number[]; cores: number };
   ram: { percent: number; totalMb: number; usedMb: number; freeMb: number };
@@ -373,6 +456,11 @@ export async function requestRebuildService(token: string, service: string): Pro
   return res.data;
 }
 
+export async function requestRunManualRebuild(token: string): Promise<RebuildServiceResult> {
+  const res = await axios.post<RebuildServiceResult>(`${API_URL}/api/admin/settings/run-manual-rebuild`, {}, headers(token));
+  return res.data;
+}
+
 export interface MigrationReadyResult {
   ready: boolean;
   dbOk: boolean;
@@ -385,6 +473,16 @@ export async function checkMigrationReady(token: string): Promise<MigrationReady
   return res.data;
 }
 
+export interface MigrationListResult {
+  ok: boolean;
+  migrations?: string[];
+}
+
+export async function getMigrationList(token: string): Promise<MigrationListResult> {
+  const res = await axios.get<MigrationListResult>(`${API_URL}/api/admin/settings/migration-list`, headers(token));
+  return res.data;
+}
+
 export interface RunMigrationsResult {
   ok: boolean;
   message?: string;
@@ -394,7 +492,50 @@ export interface RunMigrationsResult {
 }
 
 export async function requestRunMigrations(token: string): Promise<RunMigrationsResult> {
-  const res = await axios.post<RunMigrationsResult>(`${API_URL}/api/admin/settings/run-migrations`, {}, headers(token));
+  const res = await axios.post<RunMigrationsResult>(`${API_URL}/api/admin/settings/run-migrations`, {}, {
+    ...headers(token),
+    timeout: 10 * 60 * 1000
+  });
+  return res.data;
+}
+
+export async function requestRunSingleMigration(token: string, file: string): Promise<RunMigrationsResult> {
+  const res = await axios.post<RunMigrationsResult>(`${API_URL}/api/admin/settings/run-single-migration`, { file }, {
+    ...headers(token),
+    timeout: 2 * 60 * 1000
+  });
+  return res.data;
+}
+
+export interface SingleMigrationJobStart {
+  ok: boolean;
+  jobId: string;
+  message?: string;
+}
+
+export interface SingleMigrationJobStatus {
+  status: 'running' | 'completed' | 'failed';
+  ok?: boolean;
+  file?: string;
+  message?: string;
+  error?: string;
+  results?: { file: string; status: string; message?: string }[];
+  reconnectTip?: string;
+}
+
+export async function startSingleMigration(token: string, file: string): Promise<SingleMigrationJobStart> {
+  const res = await axios.post<SingleMigrationJobStart>(`${API_URL}/api/admin/settings/run-single-migration`, { file }, {
+    ...headers(token),
+    timeout: 10000
+  });
+  return res.data;
+}
+
+export async function getSingleMigrationJob(token: string, jobId: string): Promise<SingleMigrationJobStatus> {
+  const res = await axios.get<SingleMigrationJobStatus>(`${API_URL}/api/admin/settings/migration-job/${jobId}`, {
+    ...headers(token),
+    timeout: 10000
+  });
   return res.data;
 }
 
@@ -409,6 +550,33 @@ export async function getMigrationStatus(token: string): Promise<MigrationStatus
   return res.data;
 }
 
+// Service list and check individual service
+export interface ServiceItem {
+  key: string;
+  name: string;
+}
+
+export async function getServiceList(token: string): Promise<ServiceItem[]> {
+  const res = await axios.get<{ services: ServiceItem[] }>(`${API_URL}/api/admin/settings/service-list`, headers(token));
+  return res.data.services;
+}
+
+export interface CheckServiceResult {
+  service: string;
+  name: string;
+  status: 'online' | 'offline' | 'error';
+  statusCode?: number;
+  error?: string;
+}
+
+export async function checkService(token: string, serviceKey: string): Promise<CheckServiceResult> {
+  const res = await axios.get<CheckServiceResult>(
+    `${API_URL}/api/admin/settings/check-service?service=${encodeURIComponent(serviceKey)}`,
+    headers(token)
+  );
+  return res.data;
+}
+
 // Access requests (admin/farmer approval)
 export interface AccessRequest {
   id: string;
@@ -418,15 +586,20 @@ export interface AccessRequest {
   requested_role: string;
   farm_name?: string;
   farm_size?: number;
+  farm_location?: string;
+  farm_latitude?: number;
+  farm_longitude?: number;
   message?: string;
   status: string;
   feedback_message?: string;
   created_at: string;
 }
 
-export async function getAccessRequests(token: string, status = 'pending'): Promise<AccessRequest[]> {
+export async function getAccessRequests(token: string, status = 'pending', role?: 'farmer' | 'admin'): Promise<AccessRequest[]> {
+  const params = new URLSearchParams({ status });
+  if (role) params.set('role', role);
   const res = await axios.get<{ requests: AccessRequest[] }>(
-    `${API_URL}/api/admin/requests?status=${status}`,
+    `${API_URL}/api/admin/requests?${params}`,
     headers(token)
   );
   return res.data.requests;

@@ -3,11 +3,13 @@ import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import os from 'os';
 import fs from 'fs';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { query, reconnect } from './db.js';
+import { MIGRATION_ORDER } from './scripts/migration-order.js';
+import { updateMigrationOrder } from './scripts/update-migration-order.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,30 +26,94 @@ function useDb(handler) {
     try {
       await handler(req, res);
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Database error' });
+      console.error('[admin-service]', err?.message || err);
+      const msg = err?.message || 'Database error';
+      res.status(500).json({ error: msg });
     }
   };
 }
 
-// Farmers (CRUD + soft delete + restore)
+// Farmers (CRUD + soft delete + restore) - includes farms_count per farmer (farmer_id -> farms binding)
 app.get('/api/admin/farmers', useDb(async (req, res) => {
   const includeDeleted = req.query.deleted === 'true';
-  try {
-    const where = includeDeleted ? '' : ' AND fr.deleted_at IS NULL';
-    const { rows } = await query(
-      `SELECT fr.id, fr.name, fr.phone, fr.region, fr.created_at, fr.deleted_at, u.id as user_id, u.email, u.role
+  const withFarms = req.query.farms === 'true' || req.query.farms === '1';
+  const runQuery = async (useDeletedFilter) => {
+    const where = useDeletedFilter ? ' AND fr.deleted_at IS NULL' : '';
+    const sel = useDeletedFilter
+      ? 'fr.id, fr.name, fr.phone, fr.location, fr.created_at, fr.deleted_at'
+      : 'fr.id, fr.name, fr.phone, fr.location, fr.created_at';
+    return query(
+      `SELECT ${sel}, u.id as user_id, u.email, u.role,
+        (SELECT COUNT(*)::int FROM farms f WHERE f.farmer_id = fr.id) as farms_count
        FROM farmers fr JOIN users u ON fr.user_id = u.id WHERE 1=1${where}
        ORDER BY fr.created_at DESC`
     );
+  };
+  const runMinimalQuery = () => query(
+    `SELECT fr.id, fr.name, fr.phone, fr.created_at, u.id as user_id, u.email, u.role,
+      (SELECT COUNT(*)::int FROM farms f WHERE f.farmer_id = fr.id) as farms_count
+     FROM farmers fr JOIN users u ON fr.user_id = u.id
+     ORDER BY fr.created_at DESC`
+  );
+  try {
+    const { rows } = await runQuery(!includeDeleted);
+    if (withFarms) {
+      for (const farmer of rows) {
+        try {
+          const r = await query(
+            'SELECT id, name, location, area_hectares, unique_code, latitude, longitude, created_at FROM farms WHERE farmer_id = $1 ORDER BY created_at DESC',
+            [farmer.id]
+          );
+          farmer.farms = r.rows;
+        } catch (fe) {
+          if (fe.message && (fe.message.includes('unique_code') || fe.message.includes('latitude') || fe.message.includes('longitude'))) {
+            const r = await query(
+              'SELECT id, name, location, area_hectares, created_at FROM farms WHERE farmer_id = $1 ORDER BY created_at DESC',
+              [farmer.id]
+            );
+            farmer.farms = (r.rows || []).map((f) => ({ ...f, unique_code: null, latitude: null, longitude: null }));
+          } else {
+            farmer.farms = [];
+          }
+        }
+      }
+    }
     return res.json({ farmers: rows });
   } catch (e) {
-    if (e.message && e.message.includes('deleted_at')) {
-      const { rows } = await query(
-        `SELECT fr.id, fr.name, fr.phone, fr.region, fr.created_at, u.id as user_id, u.email, u.role
-         FROM farmers fr JOIN users u ON fr.user_id = u.id ORDER BY fr.created_at DESC`
-      );
-      return res.json({ farmers: rows });
+    if (e.message && (e.message.includes('deleted_at') || e.message.includes('column') || e.message.includes('location') || e.message.includes('region'))) {
+      try {
+        const { rows } = await runQuery(false);
+        if (withFarms) {
+          for (const farmer of rows) {
+            try {
+              const r = await query(
+                'SELECT id, name, location, area_hectares, created_at FROM farms WHERE farmer_id = $1 ORDER BY created_at DESC',
+                [farmer.id]
+              );
+              farmer.farms = (r.rows || []).map((f) => ({ ...f, unique_code: null, latitude: null, longitude: null }));
+            } catch (_) {
+              farmer.farms = [];
+            }
+          }
+        }
+        return res.json({ farmers: rows });
+      } catch (_) {
+        try {
+          const { rows } = await runMinimalQuery();
+          rows.forEach((r) => { r.location = r.location ?? null; });
+          if (withFarms) {
+            for (const farmer of rows) {
+              try {
+                const r = await query('SELECT id, name, area_hectares, created_at FROM farms WHERE farmer_id = $1 ORDER BY created_at DESC', [farmer.id]);
+                farmer.farms = r.rows || [];
+              } catch (_) { farmer.farms = []; }
+            }
+          }
+          return res.json({ farmers: rows });
+        } catch (minErr) {
+          throw e;
+        }
+      }
     }
     throw e;
   }
@@ -56,32 +122,65 @@ app.get('/api/admin/farmers', useDb(async (req, res) => {
 app.get('/api/admin/farmers/:id', useDb(async (req, res) => {
   try {
     const { rows } = await query(
-      `SELECT fr.id, fr.name, fr.phone, fr.region, fr.created_at, fr.deleted_at, u.id as user_id, u.email, u.role
+      `SELECT fr.id, fr.name, fr.phone, fr.location, fr.created_at, fr.deleted_at, u.id as user_id, u.email, u.role,
+        (SELECT COUNT(*)::int FROM farms f WHERE f.farmer_id = fr.id) as farms_count
        FROM farmers fr JOIN users u ON fr.user_id = u.id WHERE fr.id = $1`,
       [req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Farmer not found' });
-    return res.json(rows[0]);
+    const farmer = rows[0];
+    let farmRows = [];
+    try {
+      const r = await query(
+        'SELECT id, name, location, area_hectares, unique_code, latitude, longitude, created_at FROM farms WHERE farmer_id = $1 ORDER BY created_at DESC',
+        [farmer.id]
+      );
+      farmRows = r.rows;
+    } catch (fe) {
+      if (fe.message && (fe.message.includes('unique_code') || fe.message.includes('latitude') || fe.message.includes('longitude'))) {
+        const r = await query(
+          'SELECT id, name, location, area_hectares, created_at FROM farms WHERE farmer_id = $1 ORDER BY created_at DESC',
+          [farmer.id]
+        );
+        farmRows = (r.rows || []).map((f) => ({ ...f, unique_code: null, latitude: null, longitude: null }));
+      } else throw fe;
+    }
+    farmer.farms = farmRows;
+    return res.json(farmer);
   } catch (e) {
     if (e.message && e.message.includes('deleted_at')) {
       const { rows } = await query(
-        `SELECT fr.id, fr.name, fr.phone, fr.region, fr.created_at, u.id as user_id, u.email, u.role
+        `SELECT fr.id, fr.name, fr.phone, fr.location, fr.created_at, u.id as user_id, u.email, u.role,
+          (SELECT COUNT(*)::int FROM farms f WHERE f.farmer_id = fr.id) as farms_count
          FROM farmers fr JOIN users u ON fr.user_id = u.id WHERE fr.id = $1`,
         [req.params.id]
       );
       if (!rows[0]) return res.status(404).json({ error: 'Farmer not found' });
-      return res.json(rows[0]);
+      const farmer = rows[0];
+      try {
+        const { rows: farmRows } = await query(
+          'SELECT id, name, location, area_hectares, unique_code, latitude, longitude, created_at FROM farms WHERE farmer_id = $1 ORDER BY created_at DESC',
+          [farmer.id]
+        );
+        farmer.farms = farmRows;
+      } catch (_) {
+        farmer.farms = [];
+      }
+      return res.json(farmer);
     }
     throw e;
   }
 }));
 
 app.post('/api/admin/farmers/register', useDb(async (req, res) => {
-  const { email, password, name, phone, region, farm_name, farm_size } = req.body || {};
+  const { email, password, name, phone, location, farm_name, farm_size, farm_location, farm_latitude, farm_longitude } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
   if (!farm_name || (farm_name && String(farm_name).trim() === '')) return res.status(400).json({ error: 'Farm name required' });
   const areaHectares = farm_size != null && farm_size !== '' ? parseFloat(farm_size) : null;
   if (areaHectares != null && (isNaN(areaHectares) || areaHectares < 0)) return res.status(400).json({ error: 'Farm size must be a non-negative number' });
+  const farmLoc = farm_location != null && String(farm_location).trim() ? String(farm_location).trim() : null;
+  const farmLat = farm_latitude != null && !Number.isNaN(Number(farm_latitude)) ? Number(farm_latitude) : null;
+  const farmLng = farm_longitude != null && !Number.isNaN(Number(farm_longitude)) ? Number(farm_longitude) : null;
   const passwordHash = await bcrypt.hash(password, 10);
   try {
     const { rows: userRows } = await query(
@@ -91,14 +190,23 @@ app.post('/api/admin/farmers/register', useDb(async (req, res) => {
     );
     const user = userRows[0];
     const { rows: farmerRows } = await query(
-      'INSERT INTO farmers (user_id, name, phone, region) VALUES ($1, $2, $3, $4) RETURNING id, user_id, name, phone, region, created_at',
-      [user.id, name || null, phone || null, region || null]
+      'INSERT INTO farmers (user_id, name, phone, location) VALUES ($1, $2, $3, $4) RETURNING id, user_id, name, phone, location, created_at',
+      [user.id, name || null, phone || null, location || null]
     );
     const farmer = farmerRows[0];
-    await query(
-      'INSERT INTO farms (farmer_id, name, area_hectares) VALUES ($1, $2, $3)',
-      [farmer.id, String(farm_name).trim(), areaHectares]
-    );
+    try {
+      await query(
+        'INSERT INTO farms (farmer_id, name, location, area_hectares, latitude, longitude, unique_code) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [farmer.id, String(farm_name).trim(), farmLoc, areaHectares, farmLat, farmLng, null]
+      );
+    } catch (fe) {
+      if (fe.message && (fe.message.includes('unique_code') || fe.message.includes('latitude') || fe.message.includes('longitude'))) {
+        await query(
+          'INSERT INTO farms (farmer_id, name, location, area_hectares) VALUES ($1, $2, $3, $4)',
+          [farmer.id, String(farm_name).trim(), farmLoc, areaHectares]
+        );
+      } else throw fe;
+    }
     res.status(201).json({ user, farmer });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Email already registered' });
@@ -107,12 +215,12 @@ app.post('/api/admin/farmers/register', useDb(async (req, res) => {
 }));
 
 app.put('/api/admin/farmers/:id', useDb(async (req, res) => {
-  const { name, phone, region } = req.body || {};
+  const { name, phone, location } = req.body || {};
   try {
     const { rows } = await query(
-      `UPDATE farmers SET name = COALESCE($1, name), phone = COALESCE($2, phone), region = COALESCE($3, region)
+      `UPDATE farmers SET name = COALESCE($1, name), phone = COALESCE($2, phone), location = COALESCE($3, location)
        WHERE id = $4 AND deleted_at IS NULL RETURNING id`,
-      [name, phone, region, req.params.id]
+      [name, phone, location, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Farmer not found' });
     const { rows: userRows } = await query('SELECT user_id FROM farmers WHERE id = $1', [req.params.id]);
@@ -123,8 +231,8 @@ app.put('/api/admin/farmers/:id', useDb(async (req, res) => {
   } catch (e) {
     if (e.message && e.message.includes('deleted_at')) {
       const { rowCount } = await query(
-        `UPDATE farmers SET name = COALESCE($1, name), phone = COALESCE($2, phone), region = COALESCE($3, region) WHERE id = $4`,
-        [name, phone, region, req.params.id]
+        `UPDATE farmers SET name = COALESCE($1, name), phone = COALESCE($2, phone), location = COALESCE($3, location) WHERE id = $4`,
+        [name, phone, location, req.params.id]
       );
       if (rowCount === 0) return res.status(404).json({ error: 'Farmer not found' });
       const { rows: userRows } = await query('SELECT user_id FROM farmers WHERE id = $1', [req.params.id]);
@@ -476,20 +584,59 @@ app.delete('/api/admin/robots/:id', useDb(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.get('/api/admin/farms', useDb(async (_, res) => {
+app.get('/api/admin/farms', useDb(async (req, res) => {
+  const detailed = req.query.detailed === 'true' || req.query.detailed === '1';
+  const baseFrom = 'FROM farms f JOIN farmers fr ON f.farmer_id = fr.id AND fr.deleted_at IS NULL';
   try {
-    const { rows } = await query(
-      `SELECT f.id, f.name, f.location, f.area_hectares, f.created_at, fr.name as farmer_name, fr.phone
-       FROM farms f JOIN farmers fr ON f.farmer_id = fr.id AND fr.deleted_at IS NULL`
-    );
+    let rows;
+    if (detailed) {
+      const { rows: r } = await query(
+        `SELECT f.id, f.name, f.location, f.area_hectares, f.unique_code, f.latitude, f.longitude, f.created_at, f.farmer_id,
+         fr.name as farmer_name, fr.phone as farmer_phone,
+         (SELECT COUNT(*)::int FROM system_sensors s WHERE s.farm_id = f.id) as sensor_count,
+         (SELECT COUNT(*)::int FROM system_robots r WHERE r.farmer_id = f.farmer_id) as robot_count,
+         (SELECT COUNT(*)::int FROM crops c WHERE c.farm_id = f.id AND (c.deleted_at IS NULL)) as crops_count
+         ${baseFrom} ORDER BY f.created_at DESC`
+      );
+      rows = r;
+      for (const farm of rows) {
+        let cropRows = [];
+        try {
+          const r = await query(
+            'SELECT id, name, swahili_name, status, planted_date, harvest_date, area_hectares FROM crops WHERE farm_id = $1 AND deleted_at IS NULL ORDER BY name',
+            [farm.id]
+          );
+          cropRows = r.rows || [];
+        } catch (_) {
+          try {
+            const r = await query('SELECT id, name, swahili_name, status, planted_date, harvest_date, area_hectares FROM crops WHERE farm_id = $1 ORDER BY name', [farm.id]);
+            cropRows = (r.rows || []).filter((c) => !c.deleted_at);
+          } catch (__) {}
+        }
+        farm.crops = cropRows.map((c) => ({ id: c.id, name: c.name, swahili_name: c.swahili_name, status: c.status, planted_date: c.planted_date, harvest_date: c.harvest_date, area_hectares: c.area_hectares }));
+      }
+    } else {
+      const { rows: r } = await query(
+        `SELECT f.id, f.name, f.location, f.area_hectares, f.unique_code, f.latitude, f.longitude, f.created_at, fr.name as farmer_name, fr.phone
+         ${baseFrom} ORDER BY f.created_at DESC`
+      );
+      rows = r;
+    }
     return res.json({ farms: rows });
   } catch (e) {
-    if (e.message && e.message.includes('deleted_at')) {
+    if (e.message && (e.message.includes('deleted_at') || e.message.includes('system_sensors') || e.message.includes('system_robots'))) {
+      const { rows } = await query(
+        `SELECT f.id, f.name, f.location, f.area_hectares, f.unique_code, f.latitude, f.longitude, f.created_at, fr.name as farmer_name, fr.phone
+         FROM farms f JOIN farmers fr ON f.farmer_id = fr.id ORDER BY f.created_at DESC`
+      );
+      return res.json({ farms: rows.map((r) => ({ ...r, sensor_count: 0, robot_count: 0, crops_count: 0, crops: [] })) });
+    }
+    if (e.message && e.message.includes('unique_code')) {
       const { rows } = await query(
         `SELECT f.id, f.name, f.location, f.area_hectares, f.created_at, fr.name as farmer_name, fr.phone
-         FROM farms f JOIN farmers fr ON f.farmer_id = fr.id`
+         FROM farms f JOIN farmers fr ON f.farmer_id = fr.id ORDER BY f.created_at DESC`
       );
-      return res.json({ farms: rows });
+      return res.json({ farms: rows.map((r) => ({ ...r, unique_code: null, latitude: null, longitude: null, sensor_count: 0, robot_count: 0, crops_count: 0, crops: [] })) });
     }
     throw e;
   }
@@ -497,7 +644,7 @@ app.get('/api/admin/farms', useDb(async (_, res) => {
 
 app.get('/api/admin/farms/:id', useDb(async (req, res) => {
   const { rows } = await query(
-    `SELECT f.id, f.name, f.location, f.area_hectares, f.created_at, f.farmer_id, fr.name as farmer_name
+    `SELECT f.id, f.name, f.location, f.area_hectares, f.unique_code, f.latitude, f.longitude, f.created_at, f.farmer_id, fr.name as farmer_name
      FROM farms f JOIN farmers fr ON f.farmer_id = fr.id WHERE f.id = $1`,
     [req.params.id]
   );
@@ -506,22 +653,38 @@ app.get('/api/admin/farms/:id', useDb(async (req, res) => {
 }));
 
 app.post('/api/admin/farms', useDb(async (req, res) => {
-  const { farmer_id, name, location, area_hectares } = req.body || {};
+  const { farmer_id, name, location, area_hectares, latitude, longitude, unique_code } = req.body || {};
   if (!farmer_id) return res.status(400).json({ error: 'farmer_id required' });
+  const latVal = latitude != null && !Number.isNaN(Number(latitude)) ? Number(latitude) : null;
+  const lngVal = longitude != null && !Number.isNaN(Number(longitude)) ? Number(longitude) : null;
+  const codeVal = unique_code != null && String(unique_code).trim() ? String(unique_code).trim() : null;
   const { rows } = await query(
-    `INSERT INTO farms (farmer_id, name, location, area_hectares)
-     VALUES ($1, $2, $3, $4) RETURNING id`,
-    [farmer_id, name || null, location || null, area_hectares || null]
+    `INSERT INTO farms (farmer_id, name, location, area_hectares, latitude, longitude, unique_code)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, unique_code, latitude, longitude`,
+    [farmer_id, name || null, location || null, area_hectares || null, latVal, lngVal, codeVal]
   );
-  res.status(201).json({ id: rows[0].id });
+  res.status(201).json({ id: rows[0].id, unique_code: rows[0].unique_code, latitude: rows[0].latitude, longitude: rows[0].longitude });
 }));
 
 app.put('/api/admin/farms/:id', useDb(async (req, res) => {
-  const { name, location, area_hectares } = req.body || {};
+  const { name, location, area_hectares, latitude, longitude, unique_code } = req.body || {};
+  const latVal = latitude !== undefined ? (latitude != null && !Number.isNaN(Number(latitude)) ? Number(latitude) : null) : undefined;
+  const lngVal = longitude !== undefined ? (longitude != null && !Number.isNaN(Number(longitude)) ? Number(longitude) : null) : undefined;
+  const codeVal = unique_code !== undefined ? (unique_code != null && String(unique_code).trim() ? String(unique_code).trim() : null) : undefined;
+  const updates = [];
+  const values = [];
+  let i = 1;
+  if (name !== undefined) { updates.push(`name = $${i++}`); values.push(name || null); }
+  if (location !== undefined) { updates.push(`location = $${i++}`); values.push(location || null); }
+  if (area_hectares !== undefined) { updates.push(`area_hectares = $${i++}`); values.push(area_hectares); }
+  if (latVal !== undefined) { updates.push(`latitude = $${i++}`); values.push(latVal); }
+  if (lngVal !== undefined) { updates.push(`longitude = $${i++}`); values.push(lngVal); }
+  if (codeVal !== undefined) { updates.push(`unique_code = $${i++}`); values.push(codeVal); }
+  if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+  values.push(req.params.id);
   const { rowCount } = await query(
-    `UPDATE farms SET name = COALESCE($1, name), location = COALESCE($2, location), area_hectares = COALESCE($3, area_hectares)
-     WHERE id = $4`,
-    [name, location, area_hectares, req.params.id]
+    `UPDATE farms SET ${updates.join(', ')} WHERE id = $${i}`,
+    values
   );
   if (rowCount === 0) return res.status(404).json({ error: 'Farm not found' });
   res.json({ ok: true });
@@ -634,15 +797,27 @@ app.post('/api/admin/settings/logs', useDb(async (req, res) => {
   }
 }));
 
-// Access requests (admin/farmer signup approval)
+// Access requests (admin/farmer signup approval). ?role=farmer|admin filters by requested_role.
 app.get('/api/admin/requests', useDb(async (req, res) => {
   const status = req.query.status || 'pending';
+  const role = req.query.role;
   try {
-    const { rows } = await query(
-      `SELECT id, email, name, phone, requested_role, farm_name, farm_size, message, status, feedback_message, created_at
-       FROM access_requests WHERE status = $1 ORDER BY created_at DESC`,
-      [status]
-    );
+    let rows;
+    if (role === 'farmer' || role === 'admin') {
+      const r = await query(
+        `SELECT id, email, name, phone, requested_role, farm_name, farm_size, farm_location, farm_latitude, farm_longitude, message, status, feedback_message, created_at
+         FROM access_requests WHERE status = $1 AND requested_role = $2 ORDER BY created_at DESC`,
+        [status, role]
+      );
+      rows = r.rows;
+    } else {
+      const r = await query(
+        `SELECT id, email, name, phone, requested_role, farm_name, farm_size, farm_location, farm_latitude, farm_longitude, message, status, feedback_message, created_at
+         FROM access_requests WHERE status = $1 ORDER BY created_at DESC`,
+        [status]
+      );
+      rows = r.rows;
+    }
     return res.json({ requests: rows });
   } catch (e) {
     if (e.code === '42P01') return res.json({ requests: [] });
@@ -670,13 +845,25 @@ app.post('/api/admin/requests/:id/approve', useDb(async (req, res) => {
     const user = userRows[0];
     if (r.requested_role === 'farmer') {
       const { rows: farmerRows } = await query(
-        'INSERT INTO farmers (user_id, name, phone, region) VALUES ($1, $2, $3, $4) RETURNING id',
+        'INSERT INTO farmers (user_id, name, phone, location) VALUES ($1, $2, $3, $4) RETURNING id',
         [user.id, r.name || null, r.phone || null, null]
       );
-      await query(
-        'INSERT INTO farms (farmer_id, name, area_hectares) VALUES ($1, $2, $3)',
-        [farmerRows[0].id, r.farm_name || 'My Farm', r.farm_size || null]
-      );
+      const farmLoc = r.farm_location != null && String(r.farm_location).trim() ? String(r.farm_location).trim() : null;
+      const farmLat = r.farm_latitude != null && !Number.isNaN(Number(r.farm_latitude)) ? Number(r.farm_latitude) : null;
+      const farmLng = r.farm_longitude != null && !Number.isNaN(Number(r.farm_longitude)) ? Number(r.farm_longitude) : null;
+      try {
+        await query(
+          'INSERT INTO farms (farmer_id, name, location, area_hectares, latitude, longitude, unique_code) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+          [farmerRows[0].id, r.farm_name || 'My Farm', farmLoc, r.farm_size || null, farmLat, farmLng, null]
+        );
+      } catch (fe) {
+        if (fe.message && (fe.message.includes('unique_code') || fe.message.includes('latitude') || fe.message.includes('longitude'))) {
+          await query(
+            'INSERT INTO farms (farmer_id, name, location, area_hectares) VALUES ($1, $2, $3, $4)',
+            [farmerRows[0].id, r.farm_name || 'My Farm', farmLoc, r.farm_size || null]
+          );
+        } else throw fe;
+      }
     }
     await query(
       'UPDATE access_requests SET status = $1, feedback_message = $2, reviewed_by = $3, reviewed_at = NOW() WHERE id = $4',
@@ -775,20 +962,21 @@ app.post('/api/admin/settings/restart', async (req, res) => {
   res.json({ ok: true, message: 'System restart completed successfully. All services have been restarted. You may need to log in again.' });
 });
 
-// Settings: run full database migrations (001 through 008)
-const MIGRATION_ORDER = [
-  '001_add_users_name_phone.sql',
-  '002_add_crops_tasks_alerts.sql',
-  '003_add_system_tables.sql',
-  '004_add_soft_delete.sql',
-  '005_sensor_robot_registration.sql',
-  '006_system_config.sql',
-  '006_seed_config.sql',
-  '007_access_requests.sql',
-  '008_crop_yields.sql'
-];
+// Settings: get ordered migration list (auto-updated from migrations directory)
+app.get('/api/admin/settings/migration-list', (_req, res) => {
+  const result = updateMigrationOrder();
+  if (result.ok) {
+    res.json({ ok: true, migrations: result.migrations });
+  } else {
+    res.json({ ok: true, migrations: MIGRATION_ORDER }); // fallback to cached
+  }
+});
 
 app.post('/api/admin/settings/run-migrations', async (req, res) => {
+  // Auto-update migration-order.js from migrations directory before running
+  const updateResult = updateMigrationOrder();
+  const order = updateResult.ok ? updateResult.migrations : MIGRATION_ORDER;
+
   const candidates = [
     process.env.MIGRATIONS_DIR,
     process.env.COMPOSE_PROJECT_DIR && path.join(process.env.COMPOSE_PROJECT_DIR, 'databases/postgres/migrations'),
@@ -807,7 +995,7 @@ app.post('/api/admin/settings/run-migrations', async (req, res) => {
 
   const results = [];
   try {
-    for (const file of MIGRATION_ORDER) {
+    for (const file of order) {
       const filePath = path.join(migrationsDir, file);
       if (!fs.existsSync(filePath)) {
         results.push({ file, status: 'skipped', message: 'File not found' });
@@ -855,6 +1043,129 @@ app.post('/api/admin/settings/run-migrations', async (req, res) => {
       reconnectTip: 'Click Force Reconnect to refresh the database connection, then try again.'
     });
   }
+});
+
+// Run a single migration file (does not affect other migrations)
+// Procedural: runs in background, returns immediately with jobId; client polls for result (avoids 504 timeout)
+function getMigrationsDir() {
+  const candidates = [
+    process.env.MIGRATIONS_DIR,
+    process.env.COMPOSE_PROJECT_DIR && path.join(process.env.COMPOSE_PROJECT_DIR, 'databases/postgres/migrations'),
+    path.join(__dirname, 'migrations'),
+    path.join(__dirname, '..', '..', 'databases/postgres/migrations')
+  ].filter(Boolean);
+  return candidates.find(d => d && fs.existsSync(d)) || candidates[0];
+}
+
+const singleMigrationJobs = new Map();
+
+async function runSingleMigrationInBackground(file, jobId) {
+  const job = singleMigrationJobs.get(jobId);
+  if (!job) return;
+  const migrationsDir = getMigrationsDir();
+  const filePath = path.join(migrationsDir, file);
+  const results = [];
+  try {
+    const sql = fs.readFileSync(filePath, 'utf8');
+    const statements = sql
+      .split(/;\s*[\r\n]+/)
+      .map((s) => s.replace(/^\s*--[^\n]*\n?/gm, '').trim())
+      .filter((s) => s.length > 0 && !s.startsWith('--'));
+    for (const stmt of statements) {
+      const s = stmt.endsWith(';') ? stmt : stmt + ';';
+      try {
+        await query(s);
+      } catch (stmtErr) {
+        const code = stmtErr.code;
+        const msg = (stmtErr.message || '').toLowerCase();
+        const isAlreadyExists = code === '42P07' || code === '42710' || msg.includes('already exists');
+        if (isAlreadyExists) continue;
+        throw stmtErr;
+      }
+    }
+    results.push({ file, status: 'ok' });
+    await reconnect();
+    job.status = 'completed';
+    job.ok = true;
+    job.message = `Migration ${file} completed successfully.`;
+    job.results = results;
+  } catch (err) {
+    try { await reconnect(); } catch (_) {}
+    const errMsg = err.message || String(err);
+    const errCode = err.code || err.name || '';
+    const errDetail = errCode ? `${errMsg} (code: ${errCode})` : errMsg;
+    results.push({ file, status: 'error', message: errDetail });
+    job.status = 'failed';
+    job.ok = false;
+    job.error = `Migration failed: ${file}`;
+    job.message = errDetail;
+    job.results = results;
+    job.reconnectTip = 'Click Force Reconnect to refresh the database connection, then try again.';
+  }
+}
+
+app.post('/api/admin/settings/run-single-migration', (req, res) => {
+  const { file } = req.body || {};
+  if (!file || typeof file !== 'string' || !file.endsWith('.sql')) {
+    return res.status(400).json({
+      ok: false,
+      error: 'Invalid migration file',
+      message: 'Provide a valid migration filename (e.g. 001_add_users_name_phone.sql)'
+    });
+  }
+
+  const updateResult = updateMigrationOrder();
+  const order = updateResult.ok ? updateResult.migrations : MIGRATION_ORDER;
+  if (!order.includes(file)) {
+    return res.status(400).json({
+      ok: false,
+      error: 'Unknown migration',
+      message: `Migration "${file}" is not in the allowed list.`,
+      allowed: order
+    });
+  }
+
+  const migrationsDir = getMigrationsDir();
+  if (!migrationsDir || !fs.existsSync(migrationsDir)) {
+    return res.status(503).json({
+      ok: false,
+      error: 'Migrations directory not found',
+      message: `Set MIGRATIONS_DIR or COMPOSE_PROJECT_DIR. Looked at: ${migrationsDir}`
+    });
+  }
+
+  const filePath = path.join(migrationsDir, file);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({
+      ok: false,
+      error: 'File not found',
+      message: `Migration file "${file}" does not exist at ${filePath}`
+    });
+  }
+
+  const jobId = `mig-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  singleMigrationJobs.set(jobId, { status: 'running', file });
+  setImmediate(() => runSingleMigrationInBackground(file, jobId));
+  res.status(202).json({ ok: true, jobId, message: 'Migration started. Poll for result.' });
+});
+
+app.get('/api/admin/settings/migration-job/:jobId', (req, res) => {
+  const { jobId } = req.params;
+  const job = singleMigrationJobs.get(jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found', jobId });
+  if (job.status === 'running') {
+    return res.json({ status: 'running', file: job.file });
+  }
+  singleMigrationJobs.delete(jobId);
+  res.json({
+    status: job.status,
+    ok: job.ok,
+    file: job.file,
+    message: job.message,
+    error: job.error,
+    results: job.results,
+    reconnectTip: job.reconnectTip
+  });
 });
 
 // Settings: get rebuild config (project dir for docker-compose)
@@ -907,6 +1218,49 @@ app.post('/api/admin/settings/rebuild-service', async (req, res) => {
     res.status(500).json({
       error: 'Rebuild failed',
       message: err.message || 'Docker command failed. Ensure Docker is available and COMPOSE_PROJECT_DIR is correct.',
+      command: cmd,
+      output: output || undefined
+    });
+  }
+});
+
+// Run manual rebuild: executes cd + docker compose build + up procedurally (works when rebuild not configured)
+app.post('/api/admin/settings/run-manual-rebuild', async (req, res) => {
+  const isProductionPaaS = process.env.RENDER === 'true' ||
+    process.env.RAILWAY_ENVIRONMENT ||
+    (process.env.DATABASE_URL || '').includes('render.com') ||
+    (process.env.DATABASE_URL || '').includes('railway.app');
+  if (isProductionPaaS) {
+    return res.status(400).json({
+      ok: false,
+      error: 'Not available in production',
+      message: 'Run Manual Rebuild is for local/Docker environments only.'
+    });
+  }
+
+  const projectDir = process.env.COMPOSE_PROJECT_DIR || process.env.DOCKER_COMPOSE_DIR || path.join(__dirname, '..', '..');
+  const service = 'admin-service';
+  const sep = process.platform === 'win32' ? ';' : '&&';
+  const cmd = `cd "${projectDir}" ${sep} docker compose build --no-cache ${service} ${sep} docker compose up -d ${service}`;
+
+  try {
+    const { stdout, stderr } = await execAsync(cmd, {
+      shell: process.platform === 'win32' ? 'powershell' : 'bash',
+      timeout: 300000,
+      maxBuffer: 2 * 1024 * 1024
+    });
+    const output = [stdout, stderr].filter(Boolean).join('\n').trim();
+    res.json({
+      ok: true,
+      message: `${service} rebuilt and restarted successfully`,
+      output: output || undefined
+    });
+  } catch (err) {
+    const output = [err.stdout, err.stderr].filter(Boolean).join('\n').trim();
+    res.status(500).json({
+      ok: false,
+      error: 'Rebuild failed',
+      message: err.message || 'Docker command failed.',
       command: cmd,
       output: output || undefined
     });
@@ -991,17 +1345,34 @@ app.get('/api/admin/settings/migration-ready', async (req, res) => {
   });
 });
 
+// Migration file -> test query (kept in sync with migration-order.js)
+const MIGRATION_TESTS = {
+  '001_add_users_name_phone.sql': "SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='name' LIMIT 1",
+  '002_add_crops_tasks_alerts.sql': "SELECT 1 FROM crops LIMIT 1",
+  '003_add_system_tables.sql': "SELECT 1 FROM system_config LIMIT 1",
+  '004_add_soft_delete.sql': "SELECT 1 FROM information_schema.columns WHERE table_name='farmers' AND column_name='deleted_at' LIMIT 1",
+  '005_sensor_robot_registration.sql': "SELECT 1 FROM information_schema.columns WHERE table_name='system_sensors' AND column_name='registration_status' LIMIT 1",
+  '006_system_config.sql': "SELECT 1 FROM system_logs LIMIT 1",
+  '006_seed_config.sql': "SELECT 1 FROM system_config LIMIT 1",
+  '007_access_requests.sql': "SELECT 1 FROM access_requests LIMIT 1",
+  '008_crop_yields.sql': "SELECT 1 FROM crop_yield_records LIMIT 1",
+  '009_farm_properties.sql': "SELECT 1 FROM information_schema.columns WHERE table_name='farms' AND column_name='unique_code' LIMIT 1",
+  '010_farmers_region_to_location.sql': "SELECT 1 FROM information_schema.columns WHERE table_name='farmers' AND column_name='location' LIMIT 1",
+  '011_access_requests_farm_details.sql': "SELECT 1 FROM information_schema.columns WHERE table_name='access_requests' AND column_name='farm_location' LIMIT 1",
+  '012_farmer_farm_binding.sql': "SELECT 1 FROM pg_indexes WHERE indexname = 'idx_farms_farmer_id_id' LIMIT 1",
+  '013_fix_orphan_farmers.sql': "SELECT 1 FROM farmers LIMIT 1"
+};
+
 app.get('/api/admin/settings/migration-status', async (req, res) => {
+  const update = updateMigrationOrder();
+  const migrationList = update.ok && Array.isArray(update.migrations) ? update.migrations : MIGRATION_ORDER;
   const checks = [
     { id: 'init', name: 'Base schema (init.sql)', test: "SELECT 1 FROM users LIMIT 1" },
-    { id: '001', name: '001_add_users_name_phone', test: "SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='name' LIMIT 1" },
-    { id: '002', name: '002_add_crops_tasks_alerts', test: "SELECT 1 FROM crops LIMIT 1" },
-    { id: '003', name: '003_add_system_tables', test: "SELECT 1 FROM system_config LIMIT 1" },
-    { id: '004', name: '004_add_soft_delete', test: "SELECT 1 FROM information_schema.columns WHERE table_name='farmers' AND column_name='deleted_at' LIMIT 1" },
-    { id: '005', name: '005_sensor_robot_registration', test: "SELECT 1 FROM information_schema.columns WHERE table_name='system_sensors' AND column_name='registration_status' LIMIT 1" },
-    { id: '006', name: '006_system_config', test: "SELECT 1 FROM system_logs LIMIT 1" },
-    { id: '007', name: '007_access_requests', test: "SELECT 1 FROM access_requests LIMIT 1" },
-    { id: '008', name: '008_crop_yields', test: "SELECT 1 FROM crop_yield_records LIMIT 1" }
+    ...migrationList.map((file) => ({
+      id: file.replace('.sql', ''),
+      name: file.replace('.sql', ''),
+      test: MIGRATION_TESTS[file] || "SELECT 1 FROM pg_tables WHERE tablename = 'users' LIMIT 1"
+    }))
   ];
   const results = [];
   try {
@@ -1028,18 +1399,260 @@ app.post('/api/admin/settings/reconnect-db', async (req, res) => {
   }
 });
 
+// Fix orphan farmers: create farmers rows for users with role 'farmer' that don't have one
+app.post('/api/admin/settings/fix-orphan-farmers', useDb(async (req, res) => {
+  try {
+    const { rows } = await query(
+      `INSERT INTO farmers (user_id, name, phone, location)
+       SELECT u.id, u.name, u.phone, NULL
+       FROM users u
+       LEFT JOIN farmers f ON f.user_id = u.id
+       WHERE u.role = 'farmer' AND f.id IS NULL
+       RETURNING id, user_id, name`
+    );
+    await reconnect();
+    res.json({
+      ok: true,
+      message: rows.length > 0
+        ? `Created ${rows.length} missing farmer profile(s). Affected users can now log in to the farmer app.`
+        : 'No orphan farmers found. All users with role farmer already have a farmers row.',
+      created: rows.length,
+      farmers: rows
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message, message: 'Fix orphan farmers failed' });
+  }
+}));
+
+// Alternative DB Reconnect: full procedure (check-db, stop postgres, docker-compose up -d, handle port conflicts)
+// Only available in Docker/self-hosted deployments. Not available on Render, Railway, etc. (no Docker socket).
+app.post('/api/admin/settings/alternative-db-reconnect', async (req, res) => {
+  // Production (Render, Railway, etc.): no Docker, use Force Reconnect DB instead
+  const isProductionPaaS = process.env.RENDER === 'true' ||
+    process.env.RAILWAY_ENVIRONMENT ||
+    (process.env.DATABASE_URL || '').includes('render.com') ||
+    (process.env.DATABASE_URL || '').includes('railway.app') ||
+    process.env.ENABLE_ALTERNATIVE_DB_RECONNECT === 'false';
+  if (isProductionPaaS) {
+    return res.status(400).json({
+      ok: false,
+      error: 'Not available in production',
+      message: 'Alternative DB Reconnect is for Docker/self-hosted deployments only. On Render, Railway, or other PaaS, use Force Reconnect DB instead. Ensure DATABASE_URL is correct and the database is running.'
+    });
+  }
+
+  // Check Docker is available before running
+  try {
+    await execAsync('docker --version', { timeout: 5000 });
+  } catch (_) {
+    return res.status(503).json({
+      ok: false,
+      error: 'Docker not available',
+      message: 'Docker is not available in this environment. Alternative DB Reconnect requires Docker (e.g. self-hosted with docker-compose). Use Force Reconnect DB for connection pool refresh.'
+    });
+  }
+
+  const projectDir = process.env.COMPOSE_PROJECT_DIR || process.env.DOCKER_COMPOSE_DIR || path.join(__dirname, '..', '..');
+  const composeFile = path.join(projectDir, 'docker-compose.yml');
+  if (!fs.existsSync(composeFile)) {
+    return res.status(503).json({
+      ok: false,
+      error: 'docker-compose.yml not found',
+      message: `Set COMPOSE_PROJECT_DIR to your project root (where docker-compose.yml lives). Looked at: ${projectDir}`
+    });
+  }
+  const steps = [];
+  let lastError = null;
+
+  const runStep = async (name, cmd, opts = {}) => {
+    try {
+      const { stdout, stderr } = await execAsync(cmd, {
+        cwd: projectDir,
+        timeout: opts.timeout || 60000,
+        maxBuffer: 1024 * 1024,
+        ...opts
+      });
+      const out = [stdout, stderr].filter(Boolean).join('\n').trim();
+      steps.push({ step: name, ok: true, output: out || '(ok)' });
+      return { ok: true, output: out };
+    } catch (err) {
+      const out = [err.stdout, err.stderr].filter(Boolean).join('\n').trim();
+      steps.push({ step: name, ok: false, output: out || err.message });
+      lastError = err;
+      return { ok: false, output: out || err.message };
+    }
+  };
+
+  try {
+    // Step 1: Check if PostgreSQL is reachable
+    const checkResult = await runStep('1. Check DB (npm run check-db)', `node scripts/check-db.js`, { timeout: 10000 });
+    if (!checkResult.ok) {
+      steps.push({ step: 'Note', ok: true, output: 'PostgreSQL not reachable. Proceeding to start databases...' });
+    }
+
+    // Step 2: Stop existing postgres container (may be from another project) - ignore errors
+    try {
+      await execAsync('docker stop postgres', { timeout: 10000 });
+      steps.push({ step: '2. Stop existing postgres container', ok: true, output: 'Stopped' });
+    } catch (_) {
+      steps.push({ step: '2. Stop existing postgres container', ok: true, output: 'No postgres container to stop (ok)' });
+    }
+
+    // Step 3: docker-compose up -d
+    const composeCmd = `docker compose -f "${composeFile}" up -d`;
+    let upResult = await runStep('3. Start databases (docker-compose up -d)', composeCmd, { timeout: 120000 });
+
+    // Step 4: If port conflict, do docker-compose down then up again
+    if (!upResult.ok && (upResult.output.includes('port') && upResult.output.includes('allocated') || upResult.output.includes('bind') || upResult.output.includes('already in use'))) {
+      steps.push({ step: '4a. Port conflict detected', ok: true, output: 'Stopping all containers to free ports...' });
+      await runStep('4b. docker-compose down', `docker compose -f "${composeFile}" down`, { timeout: 30000 });
+      upResult = await runStep('4c. docker-compose up -d (retry)', composeCmd, { timeout: 120000 });
+    }
+
+    const dbOk = await query('SELECT 1').then(() => true).catch(() => false);
+    if (dbOk) await reconnect();
+
+    if (upResult.ok || dbOk) {
+      const portConflictNote = !upResult.ok && dbOk
+        ? ' Microservices had port conflicts. Databases are up. Run npm run dev:services for local dev.'
+        : '';
+      return res.json({
+        ok: true,
+        message: `Alternative DB Reconnect completed successfully. Databases (Postgres, MongoDB, Redis) are running.${portConflictNote}`,
+        steps,
+        dbConnected: dbOk
+      });
+    }
+
+    const errMsg = steps.map(s => `[${s.step}] ${s.ok ? 'OK' : 'FAILED'}: ${String(s.output || '').slice(0, 150)}`).join(' | ');
+    return res.status(500).json({
+      ok: false,
+      error: lastError?.message || 'Alternative DB Reconnect encountered errors',
+      message: errMsg,
+      steps
+    });
+  } catch (err) {
+    steps.push({ step: 'Error', ok: false, output: err.message });
+    return res.status(500).json({
+      ok: false,
+      error: err.message,
+      message: `Alternative DB Reconnect failed: ${err.message}`,
+      steps
+    });
+  }
+});
+
+// Run shell command (admin terminal) - for troubleshooting. Disabled on production PaaS.
+app.post('/api/admin/settings/run-command', async (req, res) => {
+  const isProductionPaaS = process.env.RENDER === 'true' ||
+    process.env.RAILWAY_ENVIRONMENT ||
+    (process.env.DATABASE_URL || '').includes('render.com') ||
+    (process.env.DATABASE_URL || '').includes('railway.app');
+  if (isProductionPaaS) {
+    return res.status(400).json({
+      ok: false,
+      error: 'Not available in production',
+      message: 'Terminal is disabled on Render/Railway for security. Use your local terminal.'
+    });
+  }
+
+  const { command } = req.body || {};
+  if (!command || typeof command !== 'string' || !command.trim()) {
+    return res.status(400).json({ ok: false, error: 'Command required', stdout: '', stderr: '' });
+  }
+
+  const projectDir = process.env.COMPOSE_PROJECT_DIR || process.env.DOCKER_COMPOSE_DIR || path.join(__dirname, '..', '..');
+  const shell = process.platform === 'win32' ? 'powershell' : 'bash';
+  try {
+    const { stdout, stderr } = await execAsync(command.trim(), {
+      cwd: projectDir,
+      timeout: 60000,
+      maxBuffer: 512 * 1024,
+      shell
+    });
+    return res.json({
+      ok: true,
+      stdout: stdout || '',
+      stderr: stderr || '',
+      exitCode: 0
+    });
+  } catch (err) {
+    const stdout = err.stdout || '';
+    const stderr = err.stderr || err.message || '';
+    return res.json({
+      ok: false,
+      stdout: String(stdout),
+      stderr: String(stderr),
+      exitCode: err.code ?? 1
+    });
+  }
+});
+
+// Start dev services (npm run dev:services) - for local dev when databases are up but microservices had port conflicts
+// Spawns detached; not available on Render/Railway (no npm/node at project root).
+app.post('/api/admin/settings/start-dev-services', async (req, res) => {
+  const isProductionPaaS = process.env.RENDER === 'true' ||
+    process.env.RAILWAY_ENVIRONMENT ||
+    (process.env.DATABASE_URL || '').includes('render.com') ||
+    (process.env.DATABASE_URL || '').includes('railway.app');
+  if (isProductionPaaS) {
+    return res.status(400).json({
+      ok: false,
+      error: 'Not available in production',
+      message: 'Start Dev Services is for local development only. Use your terminal: npm run dev:services'
+    });
+  }
+
+  const projectDir = process.env.COMPOSE_PROJECT_DIR || process.env.DOCKER_COMPOSE_DIR || path.join(__dirname, '..', '..');
+  const packageJson = path.join(projectDir, 'package.json');
+  if (!fs.existsSync(packageJson)) {
+    return res.status(503).json({
+      ok: false,
+      error: 'Project not found',
+      message: `package.json not found at ${projectDir}. Set COMPOSE_PROJECT_DIR to your project root.`
+    });
+  }
+
+  try {
+    const child = spawn('npm', ['run', 'dev:services'], {
+      cwd: projectDir,
+      detached: true,
+      stdio: 'ignore',
+      shell: true
+    });
+    child.unref();
+    return res.json({
+      ok: true,
+      message: 'Dev services started in background (API Gateway, Auth, Farmer, Admin, System, etc.). Check your terminal for output.'
+    });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      error: err.message,
+      message: `Failed to start dev services: ${err.message}`
+    });
+  }
+});
+
 // System health details: CPU, RAM, disk, services status
 const API_GATEWAY_PORT = process.env.API_GATEWAY_PORT || '5001';
 const AUTH_PORT = process.env.AUTH_SERVICE_PORT || '5002';
-const SERVICE_URLS = [
-  { name: 'API Gateway', url: process.env.API_GATEWAY_URL || `http://api-gateway:${API_GATEWAY_PORT}`, path: '/health' },
-  { name: 'Auth Service', url: process.env.AUTH_SERVICE_URL || `http://auth-service:${AUTH_PORT}`, path: '/api/auth/health' },
-  { name: 'Farmer Service', url: process.env.FARMER_SERVICE_URL || 'http://farmer-service:4002', path: '/api/farmers/health' },
-  { name: 'Device Service', url: process.env.DEVICE_SERVICE_URL || 'http://device-service:4003', path: '/api/devices/health' },
-  { name: 'Analytics Service', url: process.env.ANALYTICS_SERVICE_URL || 'http://analytics-service:4004', path: '/api/analytics/health' },
-  { name: 'Notification Service', url: process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:4005', path: '/api/notifications/health' },
-  { name: 'System Service', url: process.env.SYSTEM_SERVICE_URL || 'http://system-service:4007', path: '/api/system/health' }
+const SERVICE_LIST = [
+  { key: 'api-gateway', name: 'API Gateway', url: process.env.API_GATEWAY_URL || `http://api-gateway:${API_GATEWAY_PORT}`, path: '/health' },
+  { key: 'auth-service', name: 'Auth Service', url: process.env.AUTH_SERVICE_URL || `http://auth-service:${AUTH_PORT}`, path: '/api/auth/health' },
+  { key: 'farmer-service', name: 'Farmer Service', url: process.env.FARMER_SERVICE_URL || 'http://farmer-service:4002', path: '/api/farmers/health' },
+  { key: 'device-service', name: 'Device Service', url: process.env.DEVICE_SERVICE_URL || 'http://device-service:4003', path: '/api/devices/health' },
+  { key: 'analytics-service', name: 'Analytics Service', url: process.env.ANALYTICS_SERVICE_URL || 'http://analytics-service:4004', path: '/api/analytics/health' },
+  { key: 'notification-service', name: 'Notification Service', url: process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:4005', path: '/api/notifications/health' },
+  { key: 'system-service', name: 'System Service', url: process.env.SYSTEM_SERVICE_URL || 'http://system-service:4007', path: '/api/system/health' },
+  { key: 'admin-service', name: 'Admin Service', url: process.env.ADMIN_SERVICE_URL || 'http://admin-service:4006', path: '/api/admin/health' }
 ];
+
+// For local dev: use localhost when SERVICES_USE_LOCALHOST=true
+const LOCALHOST_PORTS = { 'api-gateway': 5001, 'auth-service': 5002, 'farmer-service': 4002, 'device-service': 4003, 'analytics-service': 4004, 'notification-service': 4005, 'system-service': 4007, 'admin-service': 4006 };
+const SERVICE_URLS = process.env.SERVICES_USE_LOCALHOST === 'true'
+  ? SERVICE_LIST.map((s) => ({ ...s, url: `http://localhost:${LOCALHOST_PORTS[s.key] || 4006}` }))
+  : SERVICE_LIST;
 
 async function probeService(s) {
   try {
@@ -1104,6 +1717,30 @@ app.get('/api/admin/system/health-details', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to gather health data' });
+  }
+});
+
+// List services for Check Service dropdown
+app.get('/api/admin/settings/service-list', (req, res) => {
+  res.json({ services: SERVICE_URLS.map(s => ({ key: s.key, name: s.name })) });
+});
+
+// Check a single service by key (e.g. ?service=admin-service)
+app.get('/api/admin/settings/check-service', async (req, res) => {
+  const key = req.query.service;
+  if (!key || typeof key !== 'string') {
+    return res.status(400).json({ error: 'Missing or invalid service parameter' });
+  }
+  const svc = SERVICE_URLS.find(s => s.key === key);
+  if (!svc) {
+    return res.status(404).json({ error: `Unknown service: ${key}` });
+  }
+  try {
+    const result = await probeService(svc);
+    res.json({ service: key, name: svc.name, ...result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Check failed', service: key });
   }
 });
 

@@ -1,0 +1,85 @@
+.farm-selector-bar {
+  background: linear-gradient(180deg, #007700 0%, #006600 100%);
+  padding: 10px 16px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.farm-selector-bar.farm-selector-empty {
+  background: linear-gradient(180deg, #005500 0%, #004400 100%);
+}
+
+.farm-selector-label {
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+}
+
+.farm-selector-value {
+  color: white;
+  flex: 1;
+  min-width: 0;
+}
+
+.farm-selector-clickable {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.farm-selector-clickable:hover {
+  opacity: 0.9;
+}
+
+.farm-selector-manage {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: white;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.farm-selector-manage:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.farm-selector-size {
+  opacity: 0.95;
+  font-size: 13px;
+}
+
+.farm-selector-dropdown {
+  flex: 1;
+  min-width: 120px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: white;
+  color: #1e293b;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.farm-selector-dropdown:focus {
+  outline: none;
+  border-color: white;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.4);
+}
+
+.farm-selector-size-display {
+  color: white;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.farm-selector-loading {
+  color: rgba(255, 255, 255, 0.95);
+}

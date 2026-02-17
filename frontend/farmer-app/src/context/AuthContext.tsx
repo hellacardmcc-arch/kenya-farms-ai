@@ -15,9 +15,9 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<string | null>;
   register: (email: string, password: string, name: string, phone?: string, farmName?: string, farmSize?: number) => Promise<void>;
-  requestAccess: (email: string, password: string, name: string, farmName: string, phone?: string, farmSize?: number) => Promise<void>;
+  requestAccess: (email: string, password: string, name: string, farmName: string, phone?: string, farmSize?: number, farmLocation?: string, farmLatitude?: number, farmLongitude?: number) => Promise<void>;
   logout: () => void;
   updateUser: (user: Partial<User>) => void;
   isAuthenticated: boolean;
@@ -38,18 +38,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(u);
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string): Promise<string | null> => {
     setLoading(true);
     try {
       const res = await axios.post(`${API_URL}/api/auth/login`, { email, password });
       const { token: t, user: u } = res.data;
-      if (t && u) persistAuth(t, u);
-      else throw new Error('Invalid response');
+      if (t && u) {
+        persistAuth(t, u);
+        return t;
+      }
+      throw new Error('Invalid response');
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response?.status && err.response.status >= 400 && err.response.status < 500) {
         throw err;
       }
-      persistAuth('demo-token', { id: '1', email, name: 'Demo Farmer', role: 'farmer' });
+      const demoToken = 'demo-token';
+      persistAuth(demoToken, { id: '1', email, name: 'Demo Farmer', role: 'farmer' });
+      return demoToken;
     } finally {
       setLoading(false);
     }
@@ -72,11 +77,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [persistAuth]);
 
-  const requestAccess = useCallback(async (email: string, password: string, name: string, farmName: string, phone?: string, farmSize?: number) => {
+  const requestAccess = useCallback(async (email: string, password: string, name: string, farmName: string, phone?: string, farmSize?: number, farmLocation?: string, farmLatitude?: number, farmLongitude?: number) => {
     setLoading(true);
     try {
       const res = await axios.post(`${API_URL}/api/auth/request-access`, {
-        email, password, name, phone, role: 'farmer', farm_name: farmName, farm_size: farmSize
+        email, password, name, phone, role: 'farmer', farm_name: farmName, farm_size: farmSize,
+        farm_location: farmLocation, farm_latitude: farmLatitude, farm_longitude: farmLongitude
       });
       if (!res.data?.ok) throw new Error(res.data?.message || res.data?.error || 'Request failed');
     } catch (err) {

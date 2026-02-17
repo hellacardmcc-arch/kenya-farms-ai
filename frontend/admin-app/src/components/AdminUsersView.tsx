@@ -8,6 +8,7 @@ import {
   deleteAdminUser,
   type AdminUser
 } from '../api/adminApi';
+import AdminAccessRequestsSection from './AdminAccessRequestsSection';
 import './AdminPage.css';
 
 const AdminUsersView: React.FC = () => {
@@ -93,7 +94,7 @@ const AdminUsersView: React.FC = () => {
           <div className="admin-header-actions">
             <button onClick={() => navigate('/')}>Dashboard</button>
             <button onClick={() => navigate('/users')} className="active" aria-label="Admin Users">👥 Admin Users</button>
-            <button onClick={() => navigate('/profile')}>👤 Profile</button>
+            <button onClick={() => navigate('/settings')}>⚙️ Settings</button>
             <button onClick={() => { logout(); navigate('/login'); }}>Logout</button>
           </div>
         </div>
@@ -102,7 +103,6 @@ const AdminUsersView: React.FC = () => {
       <div className="admin-page-content">
         <div className="admin-toolbar">
           <button className="btn-primary" onClick={() => setShowAddUser(true)}>+ Add Admin</button>
-          <button className="btn-secondary" onClick={() => navigate('/requests')}>📋 Access Requests</button>
         </div>
 
         {message && (
@@ -173,18 +173,23 @@ const AdminUsersView: React.FC = () => {
             {adminUsers.length === 0 && <p className="admin-empty">No admin users</p>}
           </div>
         )}
+
+        {token && (
+          <div className="admin-requests-section-wrap" style={{ marginTop: 32 }}>
+            <AdminAccessRequestsSection token={token} onRefresh={load} />
+          </div>
+        )}
       </div>
 
       <div className="admin-footer">
         <span onClick={() => navigate('/')}>🏠 Dashboard</span>
         <span onClick={() => navigate('/farmers')}>👥 Farmers</span>
+        <span onClick={() => navigate('/farms')}>🌾 Farms</span>
         <span onClick={() => navigate('/crops')}>🌱 Crops</span>
         <span onClick={() => navigate('/analytics')}>📊 Analytics</span>
         <span onClick={() => navigate('/sensors')}>📡 Sensors</span>
         <span onClick={() => navigate('/robots')}>🤖 Robots</span>
-        <span onClick={() => navigate('/profile')}>👤 Profile</span>
         <span onClick={() => navigate('/settings')}>⚙️ Settings</span>
-        <span onClick={() => navigate('/requests')}>📋 Requests</span>
         <span className="active">👤 Admin Users</span>
       </div>
     </div>

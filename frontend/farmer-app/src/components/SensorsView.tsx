@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import { getSensors, getAvailableSensors, activateSensor, type Sensor } from '../api/systemApi';
 import { getFarmerDashboard } from '../api/farmerApi';
 import LanguageSelector from './LanguageSelector';
+import FarmSelectorBar from './FarmSelectorBar';
 import './SensorsView.css';
 
 const SensorsView: React.FC = () => {
   const { token, logout } = useAuth();
   const navigate = useNavigate();
-  const [language, setLanguage] = useState<'sw' | 'en'>('sw');
+  const { language, setLanguage } = useLanguage();
   const [sensors, setSensors] = useState<Sensor[]>([]);
   const [availableSensors, setAvailableSensors] = useState<{ id: string; name: string; type?: string; unit?: string }[]>([]);
   const [farms, setFarms] = useState<{ id: string; name: string | null }[]>([]);
@@ -125,6 +127,8 @@ const SensorsView: React.FC = () => {
           </button>
         </div>
       </header>
+
+      <FarmSelectorBar />
 
       <div className="sensors-content">
         <button onClick={() => navigate('/')} className="back-btn">
