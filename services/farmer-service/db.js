@@ -5,11 +5,13 @@ const connStr = process.env.DATABASE_URL || 'postgresql://kfiot:kfiot_secret@loc
 const isRender = connStr.includes('render.com');
 
 function buildConnectionString() {
-  if (isRender && !connStr.includes('sslmode=')) {
-    const sep = connStr.includes('?') ? '&' : '?';
-    return `${connStr}${sep}sslmode=require`;
+  let url = connStr;
+  if (isRender && !url.includes('sslmode=')) {
+    const sep = url.includes('?') ? '&' : '?';
+    url = `${url}${sep}sslmode=require`;
   }
-  return connStr;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}application_name=${SERVICE}`;
 }
 
 function createPool() {
@@ -72,7 +74,23 @@ export async function query(text, params) {
 }
 
 export async function reconnect() {
-  await recreatePool();
+  const maxRetries = isRender ? 4 : 2;
+  const delayMs = isRender ? 15000 : 2000;
+  let lastErr;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await recreatePool();
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxRetries) {
+        console.warn(`[${SERVICE}] Reconnect attempt ${attempt}/${maxRetries} failed, retrying in ${delayMs / 1000}s...`, err.message);
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+  }
+  const hint = isRender ? ' Render free tier DB may be sleeping—try again in 30-60 seconds.' : '';
+  throw new Error(`${lastErr?.message || 'Connection failed'}${hint}`);
 }
 
 export async function checkConnection() {

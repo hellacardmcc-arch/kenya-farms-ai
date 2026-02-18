@@ -330,3 +330,13 @@ Never commit `JWT_SECRET`, `DATABASE_URL`, or passwords. Use Render's Environmen
 | Same region | Database and all services must be in the same region (e.g. Oregon) |
 | Blueprint sync | If using Blueprint, ensure `DATABASE_URL` from `kenya-farms-db` is synced |
 | First request slow | Free tier DB sleeps; first query after idle can take 30–60 sec |
+
+### postgres vs kfiot User Mismatch
+
+If Render logs show `user=postgres` but the Blueprint specifies `user: kfiot`:
+
+- **Database created manually** (not via Blueprint): Render uses `postgres` as the default user. The app works with either—it uses whatever `DATABASE_URL` provides.
+- **Database created via Blueprint**: The connection string should use `kfiot`. If `postgres` appears, the DB may have been created before the Blueprint or with different settings.
+- **To align**: Use Render Dashboard → **Database** → **Credentials** → create a new credential with username `kfiot` and set it as default. The connection string will then use `kfiot`.
+- **Or**: Keep using `postgres`—it works. The app does not require a specific username.
+- **Log identification**: Each service now sends `application_name` (e.g. `auth-service`, `admin-service`), so logs will show `app=auth-service` instead of `app=[unknown]`.

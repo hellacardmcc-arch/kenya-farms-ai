@@ -373,7 +373,11 @@ export async function getAdminHealth(token: string): Promise<{ status: string; d
 }
 
 export async function requestReconnectDb(token: string): Promise<{ ok: boolean; message?: string; error?: string; status?: string; db?: string }> {
-  const res = await axios.post<{ ok: boolean; message?: string; error?: string; status?: string; db?: string }>(`${API_URL}/api/admin/settings/reconnect-db`, {}, headers(token));
+  const res = await axios.post<{ ok: boolean; message?: string; error?: string; status?: string; db?: string }>(
+    `${API_URL}/api/admin/settings/reconnect-db`,
+    {},
+    { ...headers(token), timeout: 120000 }
+  );
   return res.data;
 }
 
