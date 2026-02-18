@@ -314,9 +314,19 @@ Never commit `JWT_SECRET`, `DATABASE_URL`, or passwords. Use Render's Environmen
    - Use **Internal Database URL** (not External) for all services on Render
    - Ensure `DATABASE_URL` is set in each service (Auth, Farmer, Admin, System)
    - Services and database must be in the **same region**
-   - Free tier DB sleeps after inactivity; first request may take 30–60 sec
-   - In Admin App → Settings → Maintenance, click **Force Reconnect DB** to refresh the connection
+   - Free tier DB sleeps after inactivity; first request may take 30–60 sec (app now auto-retries with 60s timeout)
+   - The app **auto-reconnects** on connection loss; no manual action needed in most cases
+   - In Admin App → Settings → Maintenance, click **Force Reconnect DB** if needed
    - **Alternative DB Reconnect** is for Docker/self-hosted only; on Render use **Force Reconnect DB**
 3. **CORS errors**: Add frontend URLs to API Gateway CORS config.
 4. **Migrations fail**: Ensure `init.sql` runs first; check user has CREATE privileges.
 5. **SSL/TLS required**: The app auto-enables SSL for Render (`render.com` in DATABASE_URL).
+
+### Render Database Connection Checklist
+
+| Check | Action |
+|-------|--------|
+| Internal URL | Use **Internal** connection string from Render Dashboard → DB → Connect |
+| Same region | Database and all services must be in the same region (e.g. Oregon) |
+| Blueprint sync | If using Blueprint, ensure `DATABASE_URL` from `kenya-farms-db` is synced |
+| First request slow | Free tier DB sleeps; first query after idle can take 30–60 sec |
