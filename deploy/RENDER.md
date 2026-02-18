@@ -340,3 +340,4 @@ If Render logs show `user=postgres` but the Blueprint specifies `user: kfiot`:
 - **To align**: Use Render Dashboard → **Database** → **Credentials** → create a new credential with username `kfiot` and set it as default. The connection string will then use `kfiot`.
 - **Or**: Keep using `postgres`—it works. The app does not require a specific username.
 - **Log identification**: Each service now sends `application_name` (e.g. `auth-service`, `admin-service`), so logs will show `app=auth-service` instead of `app=[unknown]`.
+- **Short-lived connections** (~3 sec): Some log entries may be Render's internal health checks, not your app. After deploying, verify `app=` shows your service name. If connections still drop after 3 seconds, consider [Render PgBouncer](https://render.com/docs/postgresql-connection-pooling) for connection pooling.

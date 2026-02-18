@@ -18,9 +18,10 @@ function createPool() {
   const pool = new pg.Pool({
     connectionString: buildConnectionString(),
     max: isRender ? 5 : 10,
-    idleTimeoutMillis: isRender ? 30000 : 60000,
+    idleTimeoutMillis: isRender ? 0 : 60000,
     connectionTimeoutMillis: isRender ? 60000 : 10000,
     keepAlive: true,
+    keepAliveInitialDelayMillis: isRender ? 5000 : 0,
     ...(isRender && { ssl: { rejectUnauthorized: false } }),
   });
   pool.on('error', (err) => {
